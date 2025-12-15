@@ -9,17 +9,16 @@ import java.util.Iterator;
 import java.util.List;
 
 /**
- * Peer discovery listener that:
- * - binds with setReuseAddress(true) so multiple listeners on same machine can share discovery port
+ * Discovery listener that:
+ * - binds with setReuseAddress(true)
  * - updates peer.lastSeen on each discovery packet
- * - snapshot() removes peers older than PEER_TIMEOUT_MS
+ * - parses optional fingerprint field
  */
 public class PeerDiscoveryListener extends Thread {
     private final List<Peer> peers = new ArrayList<>();
     private volatile boolean running = true;
     private final int discoveryPort;
 
-    // timeout in milliseconds -> if we haven't heard from a peer for this long, we drop it
     public static final long PEER_TIMEOUT_MS = 8_000L;
 
     public PeerDiscoveryListener(int discoveryPort) {
@@ -54,16 +53,24 @@ public class PeerDiscoveryListener extends Thread {
                 int port;
                 try { port = Integer.parseInt(parts[2]); } catch (NumberFormatException ex) { continue; }
 
+                String fp = null;
+                if (parts.length >= 4) {
+                    fp = parts[3].trim();
+                    if (fp.isEmpty()) fp = null;
+                }
+
                 long now = System.currentTimeMillis();
 
-                // find existing peer by ip+port
                 synchronized (peers) {
                     boolean found = false;
                     for (Peer p : peers) {
                         if (p.ip.equals(ip) && p.port == port) {
                             p.setLastSeen(now);
-                            // update username if changed
-                            // (optional) keep username updated
+                            // if discovery carries fingerprint and peer doesn't have it yet -> set it
+                            if (fp != null && (p.getFingerprint() == null || p.getFingerprint().isEmpty())) {
+                                p.setFingerprint(fp);
+                            }
+                            // optionally update username
                             found = true;
                             break;
                         }
@@ -71,6 +78,7 @@ public class PeerDiscoveryListener extends Thread {
                     if (!found) {
                         Peer p = new Peer(uname, ip, port);
                         p.setLastSeen(now);
+                        if (fp != null) p.setFingerprint(fp);
                         peers.add(p);
                     }
                 }
@@ -88,16 +96,30 @@ public class PeerDiscoveryListener extends Thread {
     public List<Peer> snapshot() {
         long now = System.currentTimeMillis();
         synchronized (peers) {
-            // remove stale
             Iterator<Peer> it = peers.iterator();
             while (it.hasNext()) {
                 Peer p = it.next();
-                if (now - p.getLastSeen() > PEER_TIMEOUT_MS) {
+                if (now - p.getLastSeen() > PEER_TIMEOUT_MS) it.remove();
+            }
+            return new ArrayList<>(peers);
+        }
+    }
+
+    /**
+     * Manually remove a peer by ip+port (used by UI "Remove" action).
+     * Returns true if removed.
+     */
+    public boolean removePeer(String ip, int port) {
+        synchronized (peers) {
+            Iterator<Peer> it = peers.iterator();
+            while (it.hasNext()) {
+                Peer p = it.next();
+                if (p.ip.equals(ip) && p.port == port) {
                     it.remove();
+                    return true;
                 }
             }
-            // return copy
-            return new ArrayList<>(peers);
+            return false;
         }
     }
 }

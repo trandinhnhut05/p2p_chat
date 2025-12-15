@@ -1,28 +1,39 @@
 package p2p;
 
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
+import java.io.*;
 import java.net.Socket;
 
 public class FileSender {
+
     public static void sendFile(Peer peer, File file) {
-        try (Socket socket = new Socket(peer.ip, peer.port);
-             DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
-             FileInputStream fis = new FileInputStream(file)) {
+        try (Socket sock = new Socket(peer.ip, peer.port)) {
 
-            dos.writeUTF("FILE");
-            dos.writeUTF(file.getName());
-            dos.writeLong(file.length());
+            BufferedWriter writer = new BufferedWriter(
+                    new OutputStreamWriter(sock.getOutputStream(), "UTF-8")
+            );
 
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = fis.read(buffer)) != -1) {
-                dos.write(buffer, 0, read);
+            // HELLO
+            writer.write("/HELLO:" + peer.username + ";" + peer.port + ";" + peer.getFingerprint());
+            writer.write("\n");
+
+            // FILE HEADER
+            writer.write("/FILE:" + file.getName() + ":" + file.length());
+            writer.write("\n");
+            writer.flush();
+
+            // FILE DATA (BINARY)
+            try (FileInputStream fis = new FileInputStream(file)) {
+                byte[] buf = new byte[8192];
+                int n;
+                OutputStream out = sock.getOutputStream();
+                while ((n = fis.read(buf)) != -1) {
+                    out.write(buf, 0, n);
+                }
+                out.flush();
             }
-            dos.flush();
+
         } catch (Exception e) {
-            System.err.println("Failed sendFile to " + peer + ": " + e.getMessage());
+            e.printStackTrace();
         }
     }
 }

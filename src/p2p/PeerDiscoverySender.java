@@ -1,14 +1,17 @@
 package p2p;
 
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
+import java.net.*;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 
+/**
+ * Broadcast discovery packet every second.
+ * Format: username;localIP;servicePort[;fingerprint]
+ */
 public class PeerDiscoverySender extends Thread {
     private final String username;
-    private final int servicePort;   // TCP port of this client
-    private final int discoveryPort; // UDP discovery port (shared)
+    private final int servicePort;
+    private final int discoveryPort;
     private volatile boolean running = true;
 
     public PeerDiscoverySender(String username, int servicePort, int discoveryPort) {
@@ -29,28 +32,36 @@ public class PeerDiscoverySender extends Thread {
             socket.setBroadcast(true);
             socket.setReuseAddress(true);
 
-            String localIP = InetAddress.getLocalHost().getHostAddress();
+            SettingsStore ss = new SettingsStore();
+            String myFp = ss.getAccountFingerprint();
 
             while (running) {
-                String msg = username + ";" + localIP + ";" + servicePort;
-                byte[] data = msg.getBytes(StandardCharsets.UTF_8);
+                for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                    if (!ni.isUp() || ni.isLoopback()) continue;
 
-                DatagramPacket packet = new DatagramPacket(
-                        data, data.length,
-                        InetAddress.getByName("255.255.255.255"),
-                        discoveryPort
-                );
+                    for (InterfaceAddress ia : ni.getInterfaceAddresses()) {
+                        InetAddress broadcast = ia.getBroadcast();
+                        if (broadcast == null) continue;
 
-                try {
-                    socket.send(packet);
-                } catch (Exception e) {
-                    // continue - maybe transient network error
+                        String localIP = ia.getAddress().getHostAddress();
+
+                        String msg = username + ";" + localIP + ";" + servicePort +
+                                (myFp != null && !myFp.isBlank() ? ";" + myFp : "");
+
+                        byte[] data = msg.getBytes(StandardCharsets.UTF_8);
+
+                        DatagramPacket packet = new DatagramPacket(
+                                data, data.length, broadcast, discoveryPort
+                        );
+
+                        socket.send(packet);
+                    }
                 }
-
-                try { Thread.sleep(1000); } catch (InterruptedException ignored) { break; }
+                Thread.sleep(1000);
             }
         } catch (Exception e) {
             if (running) e.printStackTrace();
         }
     }
+
 }

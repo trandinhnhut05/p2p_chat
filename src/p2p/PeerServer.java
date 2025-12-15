@@ -1,5 +1,6 @@
 package p2p;
 
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 
@@ -22,22 +23,56 @@ public class PeerServer extends Thread {
         running = false;
         try { new Socket("127.0.0.1", port).close(); } catch (Exception ignored) {}
     }
+    public static boolean isPrivateIP(String ip) {
+        try {
+            InetAddress addr = InetAddress.getByName(ip);
+            return addr.isSiteLocalAddress();
+        } catch (Exception e) {
+            return false;
+        }
+    }
 
+
+    public static boolean isSameLAN(String ip1, String ip2) {
+        try {
+            byte[] a = InetAddress.getByName(ip1).getAddress();
+            byte[] b = InetAddress.getByName(ip2).getAddress();
+            // So sánh 3 byte đầu (255.255.255.x)
+            return a[0] == b[0] && a[1] == b[1] && a[2] == b[2];
+        } catch (Exception e) {
+            return false;
+        }
+    }
     @Override
     public void run() {
         try (ServerSocket ss = new ServerSocket(port)) {
             System.out.println("PeerServer listening on TCP port " + port);
+
             while (running) {
                 Socket s = ss.accept();
-                if (!running) { s.close(); break; }
-                if (connectionListener != null) connectionListener.onNewConnection(s);
+                if (!running) {
+                    s.close();
+                    break;
+                }
+
+                String remoteIp = s.getInetAddress().getHostAddress();
+
+                // ✅ CHỈ CHẶN IP PUBLIC
+                if (!isPrivateIP(remoteIp)) {
+                    System.out.println("Rejected non-private IP: " + remoteIp);
+                    s.close();
+                    continue;
+                }
+
+                if (connectionListener != null) {
+                    connectionListener.onNewConnection(s);
+                }
             }
-        } catch (java.net.BindException be) {
-            System.err.println("PeerServer BindException: port " + port + " already in use.");
         } catch (Exception e) {
             if (running) e.printStackTrace();
         }
     }
+
 
     public static boolean isPortAvailable(int port) {
         try (ServerSocket ss = new ServerSocket(port)) { return true; }
