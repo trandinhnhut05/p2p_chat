@@ -17,6 +17,7 @@ import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 
+import javafx.scene.image.ImageView;
 import java.awt.Desktop;
 import java.awt.Image;
 import java.awt.SystemTray;
@@ -34,6 +35,23 @@ import java.util.concurrent.*;
  */
 public class MainUI extends Application implements PeerServer.ConnectionListener {
 
+    private VideoSender videoSender;
+    private VideoReceiver videoReceiver;
+    private boolean inVideoCall = false;
+    private final int VIDEO_PORT = 8000;
+    private Button btnEndVideo;
+    private ImageView videoView;
+    private Button btnVideoCall;
+
+    // ===== Voice call state =====
+    private boolean inCall = false;
+    private VoiceSender voiceSender;
+    private VoiceReceiver voiceReceiver;
+
+    // Port voice (UDP)
+    private final int voicePort = 7000;
+
+
     private final ObservableList<Peer> peerList = FXCollections.observableArrayList();
     private FilteredList<Peer> filteredPeers;
 
@@ -45,6 +63,7 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
     private javafx.scene.control.TextArea txtChat;
     private javafx.scene.control.TextField txtInput;
     private Button btnSend, btnFile;
+
     private Label lblMe;
 
     private int servicePort = 60000;
@@ -148,10 +167,22 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         txtInput.setPrefWidth(640);
         btnSend = new Button("Send");
         btnFile = new Button("Send File");
-        HBox sendBox = new HBox(8, txtInput, btnSend, btnFile);
+        videoView = new ImageView();
+        videoView.setFitWidth(320);
+        videoView.setFitHeight(240);
+        videoView.setPreserveRatio(true);
+
+        btnVideoCall = new Button("Video Call");
+        btnEndVideo = new Button("End Video");
+        btnEndVideo.setDisable(true);
+
+
+        HBox sendBox = new HBox(8, txtInput, btnSend, btnFile, btnVideoCall, btnEndVideo);
+
         sendBox.setPadding(new Insets(8));
-        VBox right = new VBox(8, txtChat, sendBox);
+        VBox right = new VBox(8, txtChat, videoView, sendBox);
         right.setPadding(new Insets(8));
+
 
         BorderPane root = new BorderPane();
         root.setTop(settings);
@@ -219,7 +250,9 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         });
 
         btnSend.setOnAction(ev -> sendMessage());
+
         txtInput.setOnAction(ev -> sendMessage());
+
 
         btnFile.setOnAction(ev -> {
             FileChooser fc = new FileChooser();
@@ -236,6 +269,46 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
                 }
             }
         });
+        btnVideoCall.setOnAction(e -> {
+            Peer p = tblPeers.getSelectionModel().getSelectedItem();
+            if (p == null || inVideoCall) {
+                showAlert("Select peer or already in call");
+                return;
+            }
+
+            try {
+                InetAddress ip = InetAddress.getByName(p.ip);
+
+                videoReceiver = new VideoReceiver(VIDEO_PORT, videoView);
+                videoSender = new VideoSender(ip, VIDEO_PORT);
+
+                videoReceiver.start();
+                videoSender.start();
+
+                inVideoCall = true;
+                btnVideoCall.setDisable(true);
+                btnEndVideo.setDisable(false);
+
+                appendText("[VIDEO] Calling " + p.username);
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                showAlert("Video call failed: " + ex.getMessage());
+            }
+        });
+        btnEndVideo.setOnAction(e -> {
+            if (!inVideoCall) return;
+
+            videoSender.stopSend();
+            videoReceiver.stopReceive();
+
+            inVideoCall = false;
+            btnVideoCall.setDisable(false);
+            btnEndVideo.setDisable(true);
+
+            appendText("[VIDEO] Ended");
+        });
+
+
 
         // context menu per-row
         tblPeers.setRowFactory(tv -> {
