@@ -1,55 +1,81 @@
 package p2p;
 
+import p2p.crypto.CryptoUtils;
+import p2p.crypto.KeyManager;
+
 import com.github.sarxos.webcam.Webcam;
 
-import javax.imageio.ImageIO;
+import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
+import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
-import java.net.*;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
+
+import javax.imageio.ImageIO;
 
 public class VideoSender extends Thread {
-    private final InetAddress targetIp;
-    private final int port;
-    private volatile boolean running = true;
 
-    public VideoSender(InetAddress ip, int port) {
-        this.targetIp = ip;
+    private final InetAddress target;
+    private final int port;
+    private final KeyManager keyManager;
+    private volatile boolean running = true;
+    private final Webcam webcam;
+
+    public VideoSender(InetAddress target, int port, KeyManager keyManager) {
+        this.target = target;
         this.port = port;
+        this.keyManager = keyManager;
+
+        webcam = Webcam.getDefault();
+        webcam.setViewSize(new Dimension(320, 240)); // 🔴 bắt buộc
+        webcam.open();
+    }
+
+    @Override
+    public void run() {
+        try (DatagramSocket ds = new DatagramSocket()) {
+
+            while (running) {
+                BufferedImage img = webcam.getImage();
+                if (img == null) continue;
+
+                String peerId = target.getHostAddress(); // 🔴 đồng bộ ID
+                SecretKey aes = keyManager.getSessionKey(peerId);
+                if (aes == null) continue;
+
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                ImageIO.write(img, "jpg", baos);
+                byte[] frameData = baos.toByteArray();
+
+                // 🔴 tránh UDP overflow
+                if (frameData.length > 60000) continue;
+
+                IvParameterSpec iv = CryptoUtils.generateIv();
+                byte[] encrypted = CryptoUtils.encryptAES(frameData, aes, iv);
+
+                byte[] sendData = new byte[16 + encrypted.length];
+                System.arraycopy(iv.getIV(), 0, sendData, 0, 16);
+                System.arraycopy(encrypted, 0, sendData, 16, encrypted.length);
+
+                DatagramPacket pkt =
+                        new DatagramPacket(sendData, sendData.length, target, port);
+
+                ds.send(pkt);
+                Thread.sleep(33); // ~30 FPS
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            webcam.close();
+        }
     }
 
     public void stopSend() {
         running = false;
         interrupt();
-    }
-
-    @Override
-    public void run() {
-        try {
-            Webcam webcam = Webcam.getDefault();
-            webcam.open();
-
-            DatagramSocket socket = new DatagramSocket();
-
-            while (running) {
-                BufferedImage image = webcam.getImage();
-
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                ImageIO.write(image, "jpg", baos);
-
-                byte[] data = baos.toByteArray();
-
-                DatagramPacket packet =
-                        new DatagramPacket(data, data.length, targetIp, port);
-
-                socket.send(packet);
-
-                Thread.sleep(50); // ~20 FPS
-            }
-
-            webcam.close();
-            socket.close();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
     }
 }

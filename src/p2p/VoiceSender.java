@@ -1,47 +1,63 @@
 package p2p;
 
+import p2p.crypto.CryptoUtils;
+import p2p.crypto.KeyManager;
+
+import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
 import javax.sound.sampled.*;
-import java.net.*;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
 
 public class VoiceSender extends Thread {
-    private final InetAddress targetIP;
-    private final int targetPort;
+    private final InetAddress target;
+    private final int port;
+    private final KeyManager keyManager;
     private volatile boolean running = true;
 
-    public VoiceSender(InetAddress ip, int port) {
-        this.targetIP = ip;
-        this.targetPort = port;
-    }
-
-    public void stopSend() {
-        running = false;
-        interrupt();
+    public VoiceSender(InetAddress target, int port, KeyManager keyManager) {
+        this.target = target;
+        this.port = port;
+        this.keyManager = keyManager;
     }
 
     @Override
     public void run() {
-        try {
-            AudioFormat format = AudioUtils.getFormat();
-            TargetDataLine mic = (TargetDataLine)
-                    AudioSystem.getLine(new DataLine.Info(TargetDataLine.class, format));
+        AudioFormat format = new AudioFormat(16000, 16, 1, true, true);
+        DataLine.Info info = new DataLine.Info(TargetDataLine.class, format);
+        try (DatagramSocket ds = new DatagramSocket();
+             TargetDataLine microphone = (TargetDataLine) AudioSystem.getLine(info)) {
 
-            mic.open(format);
-            mic.start();
+            microphone.open(format);
+            microphone.start();
 
-            DatagramSocket socket = new DatagramSocket();
             byte[] buffer = new byte[1024];
 
             while (running) {
-                int count = mic.read(buffer, 0, buffer.length);
-                DatagramPacket packet =
-                        new DatagramPacket(buffer, count, targetIP, targetPort);
-                socket.send(packet);
+                int n = microphone.read(buffer, 0, buffer.length);
+                if (n > 0) {
+                    SecretKey aes = keyManager.getSessionKey(target.getHostAddress());
+                    if (aes == null) continue;
+
+                    IvParameterSpec iv = CryptoUtils.generateIv();
+                    byte[] encrypted = CryptoUtils.encryptAES(buffer, aes, iv);
+
+                    byte[] sendData = new byte[iv.getIV().length + encrypted.length];
+                    System.arraycopy(iv.getIV(), 0, sendData, 0, iv.getIV().length);
+                    System.arraycopy(encrypted, 0, sendData, iv.getIV().length, encrypted.length);
+
+                    ds.send(new DatagramPacket(sendData, sendData.length, target, port));
+                }
             }
 
-            mic.close();
-            socket.close();
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    public void stopSend() {
+        running = false;
+        this.interrupt();
     }
 }

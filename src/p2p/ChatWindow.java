@@ -7,14 +7,18 @@ import javafx.scene.control.*;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.stage.Stage;
+import p2p.crypto.CryptoUtils;
+import p2p.crypto.KeyManager;
 
+import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 
 /**
- * Chat window popup per peer. Loads history, appends messages, allows send.
+ * Chat window per peer. Supports E2EE (AES session) for messages.
  */
 public class ChatWindow {
     private final Peer peer;
@@ -22,9 +26,11 @@ public class ChatWindow {
     private final TextArea txtHistory;
     private final TextField txtInput;
     private final SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+    private final KeyManager keyManager;
 
-    public ChatWindow(Peer peer) {
+    public ChatWindow(Peer peer, KeyManager keyManager) {
         this.peer = peer;
+        this.keyManager = keyManager;
         this.stage = new Stage();
         this.stage.setTitle("Chat with " + peer.username + " (" + peer.ip + ":" + peer.port + ")");
 
@@ -68,20 +74,37 @@ public class ChatWindow {
             return;
         }
 
-        new Thread(() -> PeerClient.sendMessage(peer, text)).start();
+        try {
+            // ---- E2EE ----
+            String peerId = peer.getId();
+            SecretKey aes = keyManager.getSessionKey(peerId);
+            if (aes == null) {
+                aes = keyManager.createAndSendSessionKey(peerId); // gửi AES qua RSA nếu chưa có
+            }
+            IvParameterSpec iv = CryptoUtils.generateIv();
+            byte[] encrypted = CryptoUtils.encryptAES(text.getBytes(StandardCharsets.UTF_8), aes, iv);
 
-        String entry = formatLine("YOU", text);
-        appendToView(entry);
-        appendToHistoryFile("YOU", text);
-        peer.setLastMessage(truncate(text));
-        txtInput.clear();
+            // gửi iv + encrypted
+            new Thread(() -> PeerClient.sendEncryptedMessage(peer, iv.getIV(), encrypted)).start();
+
+            // ---- UI & history ----
+            String entry = formatLine("YOU", text);
+            appendToView(entry);
+            appendToHistoryFile("YOU", text);
+            peer.setLastMessage(truncate(text));
+            txtInput.clear();
+        } catch (Exception e) {
+            e.printStackTrace();
+            alert("Failed to send encrypted message: " + e.getMessage());
+        }
     }
 
     private void loadHistoryToView() {
         File f = getHistoryFile(peer);
         if (!f.exists()) return;
         try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(f), StandardCharsets.UTF_8))) {
-            String line; StringBuilder sb = new StringBuilder();
+            StringBuilder sb = new StringBuilder();
+            String line;
             while ((line = br.readLine()) != null) sb.append(line).append("\n");
             String content = sb.toString();
             Platform.runLater(() -> txtHistory.setText(content));
@@ -128,7 +151,21 @@ public class ChatWindow {
         return new File(dir, safeName + ".txt");
     }
 
-    // used by MainUI to show incoming messages in open chat windows
+    // ------------------ Incoming encrypted message ------------------
+    public void appendIncomingEncrypted(byte[] iv, byte[] encrypted) {
+        try {
+            SecretKey aes = keyManager.getSessionKey(peer.getId());
+            if (aes == null) return; // chưa có AES, không giải mã được
+            byte[] decrypted = CryptoUtils.decryptAES(encrypted, aes, new IvParameterSpec(iv));
+            String msg = new String(decrypted, StandardCharsets.UTF_8);
+            appendIncoming(peer.username != null ? peer.username : peer.ip, msg);
+        } catch (Exception e) {
+            e.printStackTrace();
+            appendIncoming(peer.username != null ? peer.username : peer.ip, "[Failed to decrypt message]");
+        }
+    }
+
+    // used by MainUI to show incoming plaintext message (after decryption or non-E2EE)
     public void appendIncoming(String who, String message) {
         String entry = formatLine(who, message);
         appendToView(entry);

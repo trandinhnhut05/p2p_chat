@@ -1,44 +1,63 @@
 package p2p;
 
+import p2p.crypto.CryptoUtils;
+import p2p.crypto.KeyManager;
+
+import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
 import javax.sound.sampled.*;
-import java.net.*;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
 
 public class VoiceReceiver extends Thread {
-    private final int listenPort;
+    private final int port;
+    private final KeyManager keyManager;
     private volatile boolean running = true;
 
-    public VoiceReceiver(int port) {
-        this.listenPort = port;
-    }
-
-    public void stopReceive() {
-        running = false;
-        interrupt();
+    public VoiceReceiver(int port, KeyManager keyManager) {
+        this.port = port;
+        this.keyManager = keyManager;
     }
 
     @Override
     public void run() {
-        try {
-            AudioFormat format = AudioUtils.getFormat();
-            SourceDataLine speaker = (SourceDataLine)
-                    AudioSystem.getLine(new DataLine.Info(SourceDataLine.class, format));
+        AudioFormat format = new AudioFormat(16000, 16, 1, true, true);
+        DataLine.Info info = new DataLine.Info(SourceDataLine.class, format);
 
-            speaker.open(format);
-            speaker.start();
+        try (DatagramSocket ds = new DatagramSocket(port);
+             SourceDataLine speakers = (SourceDataLine) AudioSystem.getLine(info)) {
 
-            DatagramSocket socket = new DatagramSocket(listenPort);
-            byte[] buffer = new byte[1024];
+            speakers.open(format);
+            speakers.start();
+
+            byte[] buf = new byte[2048];
 
             while (running) {
-                DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
-                socket.receive(packet);
-                speaker.write(packet.getData(), 0, packet.getLength());
+                DatagramPacket pkt = new DatagramPacket(buf, buf.length);
+                ds.receive(pkt);
+
+                byte[] ivBytes = new byte[16];
+                System.arraycopy(pkt.getData(), 0, ivBytes, 0, 16);
+                IvParameterSpec iv = new IvParameterSpec(ivBytes);
+
+                byte[] encrypted = new byte[pkt.getLength() - 16];
+                System.arraycopy(pkt.getData(), 16, encrypted, 0, encrypted.length);
+
+                String senderIp = pkt.getAddress().getHostAddress();
+                SecretKey aes = keyManager.getSessionKey(senderIp);
+                if (aes == null) continue;
+
+                byte[] decrypted = CryptoUtils.decryptAES(encrypted, aes, iv);
+                speakers.write(decrypted, 0, decrypted.length);
             }
 
-            speaker.close();
-            socket.close();
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    public void stopReceive() {
+        running = false;
+        this.interrupt();
     }
 }

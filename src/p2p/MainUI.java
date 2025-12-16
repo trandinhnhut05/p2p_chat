@@ -18,6 +18,8 @@ import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 
 import javafx.scene.image.ImageView;
+import p2p.crypto.KeyManager;
+
 import java.awt.Desktop;
 import java.awt.Image;
 import java.awt.SystemTray;
@@ -35,6 +37,7 @@ import java.util.concurrent.*;
  */
 public class MainUI extends Application implements PeerServer.ConnectionListener {
 
+    private KeyManager keyManager;
     private VideoSender videoSender;
     private VideoReceiver videoReceiver;
     private boolean inVideoCall = false;
@@ -44,12 +47,10 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
     private Button btnVideoCall;
 
     // ===== Voice call state =====
-    private boolean inCall = false;
     private VoiceSender voiceSender;
     private VoiceReceiver voiceReceiver;
-
-    // Port voice (UDP)
-    private final int voicePort = 7000;
+    private boolean inCall = false;
+    private final int VOICE_PORT = 7000;
 
 
     private final ObservableList<Peer> peerList = FXCollections.observableArrayList();
@@ -88,6 +89,8 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         localIP = getLocalAddress();
         settingsStore = new SettingsStore();
         initTrayIcon();
+        keyManager = new KeyManager();
+
 
         // top settings & controls
         javafx.scene.control.TextField txtUsername = new javafx.scene.control.TextField(username);
@@ -175,6 +178,9 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         btnVideoCall = new Button("Video Call");
         btnEndVideo = new Button("End Video");
         btnEndVideo.setDisable(true);
+        Button btnVoiceCall = new Button("Voice Call");
+        Button btnEndVoice = new Button("End Voice");
+        btnEndVoice.setDisable(true);
 
 
         HBox sendBox = new HBox(8, txtInput, btnSend, btnFile, btnVideoCall, btnEndVideo);
@@ -271,6 +277,7 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         });
         btnVideoCall.setOnAction(e -> {
             Peer p = tblPeers.getSelectionModel().getSelectedItem();
+
             if (p == null || inVideoCall) {
                 showAlert("Select peer or already in call");
                 return;
@@ -279,8 +286,9 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
             try {
                 InetAddress ip = InetAddress.getByName(p.ip);
 
-                videoReceiver = new VideoReceiver(VIDEO_PORT, videoView);
-                videoSender = new VideoSender(ip, VIDEO_PORT);
+                // Khởi tạo VideoReceiver và VideoSender với KeyManager
+                videoReceiver = new VideoReceiver(VIDEO_PORT, keyManager, videoView);
+                videoSender = new VideoSender(ip, VIDEO_PORT, keyManager);
 
                 videoReceiver.start();
                 videoSender.start();
@@ -295,11 +303,12 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
                 showAlert("Video call failed: " + ex.getMessage());
             }
         });
+
         btnEndVideo.setOnAction(e -> {
             if (!inVideoCall) return;
 
-            videoSender.stopSend();
-            videoReceiver.stopReceive();
+            if (videoSender != null) videoSender.stopSend();
+            if (videoReceiver != null) videoReceiver.stopReceive();
 
             inVideoCall = false;
             btnVideoCall.setDisable(false);
@@ -307,6 +316,45 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
 
             appendText("[VIDEO] Ended");
         });
+
+// Voice call action
+        btnVoiceCall.setOnAction(e -> {
+            Peer p = tblPeers.getSelectionModel().getSelectedItem();
+            if (p == null || inCall) {
+                showAlert("Select peer or already in call");
+                return;
+            }
+            try {
+                InetAddress ip = InetAddress.getByName(p.ip);
+                voiceReceiver = new VoiceReceiver(VOICE_PORT, keyManager);
+                voiceSender = new VoiceSender(ip, VOICE_PORT, keyManager);
+
+                voiceReceiver.start();
+                voiceSender.start();
+
+                inCall = true;
+                btnVoiceCall.setDisable(true);
+                btnEndVoice.setDisable(false);
+
+                appendText("[VOICE] Calling " + p.username);
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                showAlert("Voice call failed: " + ex.getMessage());
+            }
+        });
+
+        btnEndVoice.setOnAction(e -> {
+            if (!inCall) return;
+            if (voiceSender != null) voiceSender.stopSend();
+            if (voiceReceiver != null) voiceReceiver.stopReceive();
+
+            inCall = false;
+            btnVoiceCall.setDisable(false);
+            btnEndVoice.setDisable(true);
+
+            appendText("[VOICE] Ended");
+        });
+
 
 
 
@@ -491,6 +539,11 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         if (listener != null) listener.shutdown();
         if (server != null) server.shutdown();
         if (uiRefresher != null) uiRefresher.shutdownNow();
+        if (videoSender != null) videoSender.stopSend();
+        if (videoReceiver != null) videoReceiver.stopReceive();
+
+        if (voiceSender != null) voiceSender.stopSend();
+        if (voiceReceiver != null) voiceReceiver.stopReceive();
         try { if (trayIcon != null) SystemTray.getSystemTray().remove(trayIcon); } catch (Exception ignored) {}
     }
 
@@ -519,7 +572,8 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         String key = p.ip + ":" + p.port;
         ChatWindow cw = openChats.get(key);
         if (cw == null) {
-            cw = new ChatWindow(p);
+            cw = new ChatWindow(p, keyManager);
+
             openChats.put(key, cw);
         }
         cw.show();
@@ -531,7 +585,7 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
     @Override
     public void onNewConnection(java.net.Socket socket) {
         // create handler with callback that matches PeerHandler.MessageCallback (fromIp, fingerprint, message)
-        PeerHandler handler = new PeerHandler(socket, new PeerHandler.MessageCallback() {
+        PeerHandler handler = new PeerHandler(socket, keyManager, new PeerHandler.MessageCallback() {
             @Override
             public void onMessage(String fromIp, String fingerprint, String message) {
                 handleIncomingMessage(fromIp, fingerprint, message);
@@ -543,6 +597,7 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
             }
         });
         handler.start();
+
     }
 
     // ---------- Incoming handling ----------

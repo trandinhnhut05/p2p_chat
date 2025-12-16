@@ -1,28 +1,33 @@
 package p2p;
 
-import java.util.Objects;
+import javax.crypto.SecretKey;
+import java.security.KeyPair;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
- * Peer information.
- * - username: display name
- * - ip, port: last seen address for connecting
- * - fingerprint: optional identity (e.g. public-key fingerprint). If present, used as stable id.
- *
- * getId() returns fingerprint if available, otherwise ip_port fallback.
+ * Đại diện 1 peer trong P2P, lưu AES session key và RSA key pair.
  */
 public class Peer {
-    public final String username;
-    public final String ip;
-    public final int port;
 
-    private volatile long lastSeen = 0L;
-    private volatile String lastMessage = "";
-    private volatile boolean muted = false;
-    private volatile boolean blocked = false;
-    private volatile long lastPingMs = -1L;
+    public String username;
+    public String ip;
+    public int port;
 
-    // NEW: optional stable identity of peer (e.g. key fingerprint). Can be null/empty.
-    private volatile String fingerprint = null;
+    private long lastPingMs = -1; // mặc định chưa ping
+    private String fingerprint; // fingerprint định danh
+    private boolean muted;
+    private boolean blocked;
+    private long lastSeen;
+    private String lastMessage;
+
+    // RSA key pair của peer
+    private KeyPair keyPair;
+
+    // AES session key cho peer này (E2EE)
+    private final ConcurrentMap<String, SecretKey> sessionKeys = new ConcurrentHashMap<>();
 
     public Peer(String username, String ip, int port) {
         this.username = username;
@@ -30,22 +35,9 @@ public class Peer {
         this.port = port;
     }
 
-    // convenience constructor including fingerprint
-    public Peer(String username, String ip, int port, String fingerprint) {
-        this.username = username;
-        this.ip = ip;
-        this.port = port;
-        this.fingerprint = fingerprint;
-    }
-
-    public long getLastSeen() { return lastSeen; }
-    public void setLastSeen(long lastSeen) { this.lastSeen = lastSeen; }
-
-    public String getLastMessage() { return lastMessage; }
-    public void setLastMessage(String lastMessage) {
-        if (lastMessage == null) lastMessage = "";
-        this.lastMessage = lastMessage;
-    }
+    // --- Getter/Setter ---
+    public String getFingerprint() { return fingerprint; }
+    public void setFingerprint(String fingerprint) { this.fingerprint = fingerprint; }
 
     public boolean isMuted() { return muted; }
     public void setMuted(boolean muted) { this.muted = muted; }
@@ -53,46 +45,46 @@ public class Peer {
     public boolean isBlocked() { return blocked; }
     public void setBlocked(boolean blocked) { this.blocked = blocked; }
 
+    public long getLastSeen() { return lastSeen; }
+    public void setLastSeen(long lastSeen) { this.lastSeen = lastSeen; }
+
     public long getLastPingMs() { return lastPingMs; }
-    public void setLastPingMs(long lastPingMs) { this.lastPingMs = lastPingMs; }
+    public void setLastPingMs(long rtt) { this.lastPingMs = rtt; }
 
-    // fingerprint accessors
-    public String getFingerprint() { return fingerprint; }
-    public void setFingerprint(String fingerprint) { this.fingerprint = fingerprint; }
+    public String getLastMessage() { return lastMessage; }
+    public void setLastMessage(String lastMessage) { this.lastMessage = lastMessage; }
 
-    /**
-     * Stable id used for filenames / settings keys.
-     * If fingerprint exists and non-empty, return it.
-     * Otherwise return ip_port (safe fallback).
-     */
+    // định danh peer (fingerprint ưu tiên)
     public String getId() {
-        if (fingerprint != null && !fingerprint.trim().isEmpty()) return fingerprint.trim();
-        // fallback: ip_port
-        return ip.replace(':', '_') + "_" + port;
+        return (fingerprint != null && !fingerprint.isBlank()) ? fingerprint : ip + "_" + port;
     }
 
-    @Override
-    public String toString() {
-        if (fingerprint != null && !fingerprint.isEmpty()) return username + " [" + fingerprint + "] (" + ip + ":" + port + ")";
-        return username + " (" + ip + ":" + port + ")";
+    // --- RSA key pair ---
+    public void setKeyPair(KeyPair kp) { this.keyPair = kp; }
+    public PrivateKey getPrivateKey() {
+        return (keyPair != null) ? keyPair.getPrivate() : null;
+    }
+    public PublicKey getPublicKey() {
+        return (keyPair != null) ? keyPair.getPublic() : null;
     }
 
+    // --- AES session key management ---
+    public void setSessionKey(String peerId, SecretKey key) { sessionKeys.put(peerId, key); }
+    public SecretKey getSessionKey(String peerId) { return sessionKeys.get(peerId); }
+
+    // equality cho peerList
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
         if (!(o instanceof Peer)) return false;
-        Peer peer = (Peer) o;
-        // Identity: prefer fingerprint when present (two peers with same fingerprint are same identity)
-        if (this.fingerprint != null && !this.fingerprint.isEmpty() && peer.fingerprint != null && !peer.fingerprint.isEmpty()) {
-            return this.fingerprint.equals(peer.fingerprint);
-        }
-        // otherwise fallback to ip+port identity
-        return port == peer.port && Objects.equals(ip, peer.ip);
+        Peer other = (Peer) o;
+        if (fingerprint != null && !fingerprint.isBlank() && other.fingerprint != null && !other.fingerprint.isBlank())
+            return fingerprint.equals(other.fingerprint);
+        return ip.equals(other.ip) && port == other.port;
     }
 
     @Override
     public int hashCode() {
-        if (fingerprint != null && !fingerprint.isEmpty()) return Objects.hash(fingerprint);
-        return Objects.hash(ip, port);
+        if (fingerprint != null && !fingerprint.isBlank()) return fingerprint.hashCode();
+        return (ip + "_" + port).hashCode();
     }
 }

@@ -1,9 +1,14 @@
 package p2p;
 
-import java.io.*;
+import p2p.crypto.CryptoUtils;
+import p2p.crypto.KeyManager;
+
+import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
+import java.io.File;
+import java.io.InputStream;
 import java.net.Socket;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.Base64;
 
 public class PeerHandler extends Thread {
 
@@ -14,115 +19,45 @@ public class PeerHandler extends Thread {
 
     private final Socket socket;
     private final MessageCallback callback;
+    private final KeyManager keyManager;
 
-    private BufferedReader reader;
-    private BufferedWriter writer;
-    private InputStream in;
-    private OutputStream out;
-
-    private String peerFingerprint;
-    private boolean handshaked = false;
-
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
-
-    public PeerHandler(Socket socket, MessageCallback callback) {
+    public PeerHandler(Socket socket, KeyManager km, MessageCallback cb) {
         this.socket = socket;
-        this.callback = callback;
-        try {
-            in = socket.getInputStream();
-            out = socket.getOutputStream();
-            reader = new BufferedReader(new InputStreamReader(in, "UTF-8"));
-            writer = new BufferedWriter(new OutputStreamWriter(out, "UTF-8"));
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        this.keyManager = km;
+        this.callback = cb;
     }
 
     @Override
     public void run() {
-        String fromIp = socket.getInetAddress().getHostAddress();
-        try {
-            String line;
-            while ((line = reader.readLine()) != null) {
+        try (InputStream is = socket.getInputStream()) {
+            byte[] ivBytes = is.readNBytes(16);
+            IvParameterSpec iv = new IvParameterSpec(ivBytes);
 
-                // ===== HELLO =====
-                if (line.startsWith("/HELLO:")) {
-                    // /HELLO:username;port;fingerprint
-                    String[] p = line.substring(7).split(";");
-                    if (p.length >= 3) {
-                        String peerUsername = p[0].trim();
-                        int peerPort = Integer.parseInt(p[1].trim());
-                        peerFingerprint = p[2].trim();
+            int lenHi = is.read();
+            int lenLo = is.read();
+            int dataLen = (lenHi << 8) | lenLo;
+            byte[] encrypted = is.readNBytes(dataLen);
 
-                        // có thể dùng callback để cập nhật peer info
-                        // (fingerprint được truyền lên MainUI rồi)
-                        handshaked = true;
-                    }
-                    continue;
-                }
+            String peerId = socket.getInetAddress().getHostAddress() + ":" + socket.getPort();
 
-
-                if (!handshaked) continue;
-
-                // ===== PING =====
-                if (line.startsWith("/PING:")) {
-                    sendLine("/PONG:" + line.substring(6));
-                    continue;
-                }
-
-                // ===== FILE =====
-                if (line.startsWith("/FILE:")) {
-                    String[] parts = line.split(":", 3);
-                    if (parts.length < 3) continue;
-
-                    String filename = parts[1];
-                    long size = Long.parseLong(parts[2]);
-
-                    File tmp = File.createTempFile("recv_", "_" + filename);
-                    try (FileOutputStream fos = new FileOutputStream(tmp)) {
-                        byte[] buf = new byte[8192];
-                        long received = 0;
-                        while (received < size) {
-                            int n = in.read(buf, 0, (int) Math.min(buf.length, size - received));
-                            if (n < 0) break;
-                            fos.write(buf, 0, n);
-                            received += n;
-                        }
-                    }
-
-                    if (callback != null)
-                        callback.onFileReceived(fromIp, filename, tmp);
-                    continue;
-                }
-
-                // ===== NORMAL MESSAGE =====
-                if (callback != null)
-                    callback.onMessage(fromIp, peerFingerprint, line);
+            // Kiểm tra nếu là AES key
+            String possibleKeyMsg = new String(encrypted, "UTF-8");
+            if (possibleKeyMsg.startsWith("/AESKEY:")) {
+                byte[] encKey = Base64.getDecoder().decode(possibleKeyMsg.substring(8));
+                SecretKey aes = keyManager.decryptRSAKey(encKey);
+                keyManager.storeSessionKey(peerId, aes);
+                return;
             }
-        } catch (Exception ignored) {
-        } finally {
-            shutdown();
+
+            SecretKey aes = keyManager.getSessionKey(peerId);
+            if (aes == null) return; // chưa có key, bỏ qua
+
+            byte[] decrypted = CryptoUtils.decryptAES(encrypted, aes, iv);
+            String message = new String(decrypted, "UTF-8");
+            callback.onMessage(socket.getInetAddress().getHostAddress(), null, message);
+
+        } catch (Exception e) {
+            e.printStackTrace();
         }
-    }
-
-    public void sendMessage(String msg) {
-        executor.submit(() -> sendLine(msg));
-    }
-
-    public void sendPing(long timestamp) {
-        executor.submit(() -> sendLine("/PING:" + timestamp));
-    }
-
-    public synchronized void sendLine(String line) {
-        try {
-            writer.write(line);
-            writer.write("\n");
-            writer.flush();
-        } catch (IOException ignored) {}
-    }
-
-    public void shutdown() {
-        try { socket.close(); } catch (IOException ignored) {}
-        executor.shutdownNow();
     }
 }
