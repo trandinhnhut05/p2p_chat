@@ -5,8 +5,10 @@ import p2p.crypto.KeyManager;
 
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
+import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
 public class PeerClient {
@@ -87,16 +89,26 @@ public class PeerClient {
             return "[Decryption failed]";
         }
     }
-    // --- Thêm phương thức gửi AES key thô theo peerId ---
     public static void sendRawKeyToPeer(String peerId, byte[] encryptedKey) {
-        Peer peer = PeerManager.getPeerById(peerId);
-        if (peer != null) {
-            String payload = "/AESKEY:" + Base64.getEncoder().encodeToString(encryptedKey);
-            sendRawMessage(peer, payload);
-        } else {
-            System.err.println("Peer not found for id: " + peerId);
+        try {
+            String[] parts = peerId.split(":");
+            String ip = parts[0];
+            int port = Integer.parseInt(parts[1]);
+
+            try (Socket s = new Socket(ip, port);
+                 OutputStream os = s.getOutputStream()) {
+
+                String payload = "/AESKEY:" +
+                        Base64.getEncoder().encodeToString(encryptedKey);
+
+                os.write(payload.getBytes(StandardCharsets.UTF_8));
+                os.flush();
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
+
 
     public static void sendEncryptedMessage(Peer peer, byte[] iv, byte[] encrypted) {
         try {

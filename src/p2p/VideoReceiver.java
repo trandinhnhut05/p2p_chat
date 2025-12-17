@@ -44,8 +44,9 @@ public class VideoReceiver extends Thread {
                 byte[] encrypted = new byte[pkt.getLength() - 16];
                 System.arraycopy(pkt.getData(), 16, encrypted, 0, encrypted.length);
 
-                String peerId = pkt.getAddress().getHostAddress();
+                String peerId = pkt.getAddress().getHostAddress() + ":" + port;
                 SecretKey aes = keyManager.getSessionKey(peerId);
+
                 if (aes == null) continue;
 
                 byte[] decrypted = CryptoUtils.decryptAES(encrypted, aes, iv);

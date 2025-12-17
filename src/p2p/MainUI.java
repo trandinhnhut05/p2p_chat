@@ -90,6 +90,9 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         settingsStore = new SettingsStore();
         initTrayIcon();
         keyManager = new KeyManager();
+        CallManager callManager =
+                new CallManager(PeerClient.getKeyManager());
+
 
 
         // top settings & controls

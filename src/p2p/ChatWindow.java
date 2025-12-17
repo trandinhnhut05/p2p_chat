@@ -16,6 +16,9 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import javafx.scene.image.ImageView;
+
+
 
 /**
  * Chat window per peer. Supports E2EE (AES session) for messages.
@@ -27,10 +30,15 @@ public class ChatWindow {
     private final TextField txtInput;
     private final SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
     private final KeyManager keyManager;
+    private CallManager callManager;
+
+    private ImageView videoView;
+
 
     public ChatWindow(Peer peer, KeyManager keyManager) {
         this.peer = peer;
         this.keyManager = keyManager;
+        this.callManager = callManager;
         this.stage = new Stage();
         this.stage.setTitle("Chat with " + peer.username + " (" + peer.ip + ":" + peer.port + ")");
 
@@ -39,24 +47,59 @@ public class ChatWindow {
         txtHistory.setWrapText(true);
 
         txtInput = new TextField();
-        Button btnSend = new Button("Send");
+
+        Button btnSend  = new Button("Send");
+        Button btnVoice = new Button("Voice Call");
+        Button btnVideo = new Button("Video Call");
+        Button btnEnd   = new Button("End Call");
         Button btnClose = new Button("Close");
 
-        HBox bottom = new HBox(8, txtInput, btnSend, btnClose);
+        btnEnd.setDisable(true);
+        HBox bottom = new HBox(8,
+                txtInput, btnSend, btnVoice, btnVideo, btnEnd, btnClose);
         bottom.setPadding(new Insets(8));
+
+        videoView = new ImageView();
+        videoView.setFitWidth(320);
+        videoView.setFitHeight(240);
+        videoView.setPreserveRatio(true);
 
         BorderPane root = new BorderPane();
         root.setCenter(txtHistory);
         root.setBottom(bottom);
+        root.setRight(videoView);
         BorderPane.setMargin(txtHistory, new Insets(8));
+        BorderPane.setMargin(videoView, new Insets(8));
 
-        Scene scene = new Scene(root, 700, 500);
+        Scene scene = new Scene(root, 900, 520);
         stage.setScene(scene);
 
         loadHistoryToView();
 
         btnSend.setOnAction(ev -> doSend());
         txtInput.setOnAction(ev -> doSend());
+        btnVoice.setOnAction(ev -> {
+            try {
+                callManager.startVoiceCall(peer, 8000, 8000);
+                btnEnd.setDisable(false);
+            } catch (Exception e) {
+                alert("Voice call failed: " + e.getMessage());
+            }
+        });
+
+        btnVideo.setOnAction(ev -> {
+            try {
+                callManager.startVideoCall(peer, 7000, 7000, videoView);
+                btnEnd.setDisable(false);
+            } catch (Exception e) {
+                alert("Video call failed: " + e.getMessage());
+            }
+        });
+
+        btnEnd.setOnAction(ev -> {
+            callManager.stopAll();
+            btnEnd.setDisable(true);
+        });
         btnClose.setOnAction(ev -> stage.close());
     }
 

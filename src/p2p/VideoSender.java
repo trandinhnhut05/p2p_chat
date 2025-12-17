@@ -42,9 +42,15 @@ public class VideoSender extends Thread {
                 BufferedImage img = webcam.getImage();
                 if (img == null) continue;
 
-                String peerId = target.getHostAddress(); // 🔴 đồng bộ ID
+                String peerId = target.getHostAddress() + ":" + port;
                 SecretKey aes = keyManager.getSessionKey(peerId);
-                if (aes == null) continue;
+
+
+                if (aes == null) {
+                    System.out.println("❌ No AES key for video peer: " + peerId);
+                    continue;
+                }
+
 
                 ByteArrayOutputStream baos = new ByteArrayOutputStream();
                 ImageIO.write(img, "jpg", baos);
