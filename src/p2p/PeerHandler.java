@@ -1,63 +1,79 @@
 package p2p;
 
-import p2p.crypto.CryptoUtils;
+import javafx.application.Platform;
 import p2p.crypto.KeyManager;
 
-import javax.crypto.SecretKey;
-import javax.crypto.spec.IvParameterSpec;
-import java.io.File;
-import java.io.InputStream;
+import java.io.DataInputStream;
 import java.net.Socket;
-import java.util.Base64;
+import java.nio.charset.StandardCharsets;
 
-public class PeerHandler extends Thread {
-
-    public interface MessageCallback {
-        void onMessage(String fromIp, String fingerprint, String message);
-        void onFileReceived(String fromIp, String filename, File file);
-    }
+/**
+ * PeerHandler
+ * -----------
+ * Xử lý kết nối đến từ peer khác
+ * - MSG  : nhận tin nhắn
+ * - FILE : nhận file
+ */
+public class PeerHandler implements Runnable {
 
     private final Socket socket;
-    private final MessageCallback callback;
+    private final Peer peer;
     private final KeyManager keyManager;
+    private final SettingsStore settings;
+    private final MainUI mainUI;
 
-    public PeerHandler(Socket socket, KeyManager km, MessageCallback cb) {
+    public PeerHandler(Socket socket,
+                       Peer peer,
+                       KeyManager keyManager,
+                       SettingsStore settings,
+                       MainUI mainUI) {
         this.socket = socket;
-        this.keyManager = km;
-        this.callback = cb;
+        this.peer = peer;
+        this.keyManager = keyManager;
+        this.settings = settings;
+        this.mainUI = mainUI;
     }
 
     @Override
     public void run() {
-        try (InputStream is = socket.getInputStream()) {
-            byte[] ivBytes = is.readNBytes(16);
-            IvParameterSpec iv = new IvParameterSpec(ivBytes);
+        try (DataInputStream dis = new DataInputStream(socket.getInputStream())) {
 
-            int lenHi = is.read();
-            int lenLo = is.read();
-            int dataLen = (lenHi << 8) | lenLo;
-            byte[] encrypted = is.readNBytes(dataLen);
+            String type = dis.readUTF();
 
-            String peerId = socket.getInetAddress().getHostAddress() + ":" + socket.getPort();
-
-            // Kiểm tra nếu là AES key
-            String possibleKeyMsg = new String(encrypted, "UTF-8");
-            if (possibleKeyMsg.startsWith("/AESKEY:")) {
-                byte[] encKey = Base64.getDecoder().decode(possibleKeyMsg.substring(8));
-                SecretKey aes = keyManager.decryptRSAKey(encKey);
-                keyManager.storeSessionKey(peerId, aes);
-                return;
+            if ("MSG".equals(type)) {
+                handleMessage(dis);
+            } else if ("FILE".equals(type)) {
+                handleFile();
             }
-
-            SecretKey aes = keyManager.getSessionKey(peerId);
-            if (aes == null) return; // chưa có key, bỏ qua
-
-            byte[] decrypted = CryptoUtils.decryptAES(encrypted, aes, iv);
-            String message = new String(decrypted, "UTF-8");
-            callback.onMessage(socket.getInetAddress().getHostAddress(), null, message);
 
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    /* ================= MESSAGE ================= */
+
+    private void handleMessage(DataInputStream dis) throws Exception {
+
+        int length = dis.readInt();
+        byte[] encrypted = new byte[length];
+        dis.readFully(encrypted);
+
+        byte[] decrypted = keyManager.decrypt(peer.getId(), encrypted);
+        String msg = new String(decrypted, StandardCharsets.UTF_8);
+
+        if (settings.isBlockedById(peer.getId())) return;
+
+        peer.setLastMessage(msg);
+        ChatWindow.appendToHistoryFileStatic(peer, peer.getUsername(), msg);
+
+        Platform.runLater(() -> mainUI.onIncomingMessage(peer, msg));
+    }
+
+
+    /* ================= FILE ================= */
+
+    private void handleFile() {
+        new Thread(new FileReceiver(socket, peer, keyManager)).start();
     }
 }

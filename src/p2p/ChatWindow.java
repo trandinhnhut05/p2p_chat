@@ -7,100 +7,56 @@ import javafx.scene.control.*;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.stage.Stage;
-import p2p.crypto.CryptoUtils;
 import p2p.crypto.KeyManager;
 
-import javax.crypto.SecretKey;
-import javax.crypto.spec.IvParameterSpec;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
-import javafx.scene.image.ImageView;
-
-
 
 /**
- * Chat window per peer. Supports E2EE (AES session) for messages.
+ * ChatWindow
+ * ----------
+ * Cửa sổ chat riêng cho từng Peer
  */
 public class ChatWindow {
+
     private final Peer peer;
-    private final Stage stage;
-    private final TextArea txtHistory;
-    private final TextField txtInput;
-    private final SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
     private final KeyManager keyManager;
-    private CallManager callManager;
 
-    private ImageView videoView;
+    private final Stage stage;
+    private final TextArea txtChat = new TextArea();
+    private final TextField txtInput = new TextField();
+    private final Button btnSend = new Button("Send");
 
+    private static final SimpleDateFormat TS = new SimpleDateFormat("HH:mm:ss");
 
     public ChatWindow(Peer peer, KeyManager keyManager) {
         this.peer = peer;
         this.keyManager = keyManager;
-        this.callManager = callManager;
-        this.stage = new Stage();
-        this.stage.setTitle("Chat with " + peer.username + " (" + peer.ip + ":" + peer.port + ")");
 
-        txtHistory = new TextArea();
-        txtHistory.setEditable(false);
-        txtHistory.setWrapText(true);
+        stage = new Stage();
+        stage.setTitle("Chat with " + peer.getUsername());
 
-        txtInput = new TextField();
-
-        Button btnSend  = new Button("Send");
-        Button btnVoice = new Button("Voice Call");
-        Button btnVideo = new Button("Video Call");
-        Button btnEnd   = new Button("End Call");
-        Button btnClose = new Button("Close");
-
-        btnEnd.setDisable(true);
-        HBox bottom = new HBox(8,
-                txtInput, btnSend, btnVoice, btnVideo, btnEnd, btnClose);
-        bottom.setPadding(new Insets(8));
-
-        videoView = new ImageView();
-        videoView.setFitWidth(320);
-        videoView.setFitHeight(240);
-        videoView.setPreserveRatio(true);
+        txtChat.setEditable(false);
+        txtChat.setWrapText(true);
 
         BorderPane root = new BorderPane();
-        root.setCenter(txtHistory);
-        root.setBottom(bottom);
-        root.setRight(videoView);
-        BorderPane.setMargin(txtHistory, new Insets(8));
-        BorderPane.setMargin(videoView, new Insets(8));
+        root.setPadding(new Insets(8));
 
-        Scene scene = new Scene(root, 900, 520);
+        HBox bottom = new HBox(6, txtInput, btnSend);
+        bottom.setPadding(new Insets(6));
+
+        root.setCenter(txtChat);
+        root.setBottom(bottom);
+
+        Scene scene = new Scene(root, 480, 420);
         stage.setScene(scene);
 
-        loadHistoryToView();
+        btnSend.setOnAction(e -> send());
+        txtInput.setOnAction(e -> send());
 
-        btnSend.setOnAction(ev -> doSend());
-        txtInput.setOnAction(ev -> doSend());
-        btnVoice.setOnAction(ev -> {
-            try {
-                callManager.startVoiceCall(peer, 8000, 8000);
-                btnEnd.setDisable(false);
-            } catch (Exception e) {
-                alert("Voice call failed: " + e.getMessage());
-            }
-        });
-
-        btnVideo.setOnAction(ev -> {
-            try {
-                callManager.startVideoCall(peer, 7000, 7000, videoView);
-                btnEnd.setDisable(false);
-            } catch (Exception e) {
-                alert("Video call failed: " + e.getMessage());
-            }
-        });
-
-        btnEnd.setOnAction(ev -> {
-            callManager.stopAll();
-            btnEnd.setDisable(true);
-        });
-        btnClose.setOnAction(ev -> stage.close());
+        loadHistory();
     }
 
     public void show() {
@@ -108,111 +64,57 @@ public class ChatWindow {
         stage.toFront();
     }
 
-    private void doSend() {
+    private void send() {
         String text = txtInput.getText().trim();
         if (text.isEmpty()) return;
 
-        if (peer.isBlocked()) {
-            alert("Cannot send — peer is blocked.");
-            return;
-        }
+        appendOutgoing("YOU", text);
+        txtInput.clear();
 
-        try {
-            // ---- E2EE ----
-            String peerId = peer.getId();
-            SecretKey aes = keyManager.getSessionKey(peerId);
-            if (aes == null) {
-                aes = keyManager.createAndSendSessionKey(peerId); // gửi AES qua RSA nếu chưa có
-            }
-            IvParameterSpec iv = CryptoUtils.generateIv();
-            byte[] encrypted = CryptoUtils.encryptAES(text.getBytes(StandardCharsets.UTF_8), aes, iv);
-
-            // gửi iv + encrypted
-            new Thread(() -> PeerClient.sendEncryptedMessage(peer, iv.getIV(), encrypted)).start();
-
-            // ---- UI & history ----
-            String entry = formatLine("YOU", text);
-            appendToView(entry);
-            appendToHistoryFile("YOU", text);
-            peer.setLastMessage(truncate(text));
-            txtInput.clear();
-        } catch (Exception e) {
-            e.printStackTrace();
-            alert("Failed to send encrypted message: " + e.getMessage());
-        }
+        new Thread(() -> PeerClient.sendMessage(peer, text)).start();
+        appendToHistoryFileStatic(peer, "YOU", text);
+        peer.setLastMessage(text);
     }
 
-    private void loadHistoryToView() {
+    /* ================= HISTORY ================= */
+
+    private void loadHistory() {
         File f = getHistoryFile(peer);
         if (!f.exists()) return;
+
         try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(f), StandardCharsets.UTF_8))) {
-            StringBuilder sb = new StringBuilder();
             String line;
-            while ((line = br.readLine()) != null) sb.append(line).append("\n");
-            String content = sb.toString();
-            Platform.runLater(() -> txtHistory.setText(content));
-        } catch (Exception e) { e.printStackTrace(); }
-    }
-
-    private void appendToView(String s) { Platform.runLater(() -> txtHistory.appendText(s + "\n")); }
-
-    public static void appendToHistoryFileStatic(Peer peer, String who, String msg) {
-        File f = getHistoryFile(peer);
-        try {
-            f.getParentFile().mkdirs();
-            try (BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(f, true), StandardCharsets.UTF_8))) {
-                String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date());
-                bw.write("[" + time + "] " + who + ": " + msg);
-                bw.newLine();
+            while ((line = br.readLine()) != null) {
+                txtChat.appendText(line + "\n");
             }
-        } catch (Exception e) { e.printStackTrace(); }
+        } catch (IOException ignored) {}
     }
 
-    private void appendToHistoryFile(String who, String msg) { appendToHistoryFileStatic(peer, who, msg); }
-
-    private String formatLine(String who, String text) {
-        String time = df.format(new Date());
-        return "[" + time + "] " + who + ": " + text;
+    public void appendIncoming(String from, String msg) {
+        Platform.runLater(() -> append("[" + TS.format(new Date()) + "] " + from + ": " + msg));
     }
 
-    private String truncate(String s) {
-        if (s == null) return "";
-        s = s.replaceAll("\\s+", " ").trim();
-        if (s.length() <= 80) return s;
-        return s.substring(0, 77) + "...";
+    private void appendOutgoing(String from, String msg) {
+        append("[" + TS.format(new Date()) + "] " + from + ": " + msg);
     }
 
-    private void alert(String t) { Platform.runLater(() -> new Alert(Alert.AlertType.INFORMATION, t, ButtonType.OK).showAndWait()); }
+    private void append(String line) {
+        txtChat.appendText(line + "\n");
+    }
 
-    // History file location uses SettingsStore
-    public static File getHistoryFile(Peer p) {
-        SettingsStore ss = new SettingsStore();
-        String folder = ss.getHistoryFolder();
-        String safeName = p.ip.replace(':', '_') + "_" + p.port;
-        File dir = new File(folder);
+    /* ================= STATIC HISTORY UTILS ================= */
+
+    public static File getHistoryFile(Peer peer) {
+        File dir = new File(System.getProperty("user.home"), ".p2p-chat/history");
         if (!dir.exists()) dir.mkdirs();
-        return new File(dir, safeName + ".txt");
+        return new File(dir, peer.getId() + ".txt");
     }
 
-    // ------------------ Incoming encrypted message ------------------
-    public void appendIncomingEncrypted(byte[] iv, byte[] encrypted) {
-        try {
-            SecretKey aes = keyManager.getSessionKey(peer.getId());
-            if (aes == null) return; // chưa có AES, không giải mã được
-            byte[] decrypted = CryptoUtils.decryptAES(encrypted, aes, new IvParameterSpec(iv));
-            String msg = new String(decrypted, StandardCharsets.UTF_8);
-            appendIncoming(peer.username != null ? peer.username : peer.ip, msg);
-        } catch (Exception e) {
-            e.printStackTrace();
-            appendIncoming(peer.username != null ? peer.username : peer.ip, "[Failed to decrypt message]");
-        }
-    }
-
-    // used by MainUI to show incoming plaintext message (after decryption or non-E2EE)
-    public void appendIncoming(String who, String message) {
-        String entry = formatLine(who, message);
-        appendToView(entry);
-        appendToHistoryFile(who, message);
-        peer.setLastMessage(truncate(message));
+    public static synchronized void appendToHistoryFileStatic(Peer peer, String from, String msg) {
+        File f = getHistoryFile(peer);
+        try (BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(f, true), StandardCharsets.UTF_8))) {
+            bw.write("[" + TS.format(new Date()) + "] " + from + ": " + msg);
+            bw.newLine();
+        } catch (IOException ignored) {}
     }
 }

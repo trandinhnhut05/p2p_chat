@@ -1,35 +1,41 @@
 package p2p;
 
+import p2p.crypto.KeyManager;
+
+import javax.crypto.Cipher;
+import javax.crypto.CipherOutputStream;
 import java.io.*;
 import java.net.Socket;
 
+/**
+ * FileSender
+ * -----------
+ * Gửi file tới peer qua TCP (AES encrypted)
+ */
 public class FileSender {
 
-    public static void sendFile(Peer peer, File file) {
-        try (Socket sock = new Socket(peer.ip, peer.port)) {
+    private static final int BUFFER_SIZE = 8192;
 
-            BufferedWriter writer = new BufferedWriter(
-                    new OutputStreamWriter(sock.getOutputStream(), "UTF-8")
-            );
+    public static void sendFile(Peer peer, File file, KeyManager keyManager) {
+        try (Socket socket = new Socket(peer.getAddress(), peer.getServicePort());
+             DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
 
-            // HELLO
-            writer.write("/HELLO:" + peer.username + ";" + peer.port + ";" + peer.getFingerprint());
-            writer.write("\n");
+            dos.writeUTF("FILE");
+            dos.writeUTF(file.getName());
+            dos.writeLong(file.length());
+            dos.flush();
 
-            // FILE HEADER
-            writer.write("/FILE:" + file.getName() + ":" + file.length());
-            writer.write("\n");
-            writer.flush();
+            Cipher cipher = keyManager.createAESCipher(Cipher.ENCRYPT_MODE, peer.getId());
 
-            // FILE DATA (BINARY)
-            try (FileInputStream fis = new FileInputStream(file)) {
-                byte[] buf = new byte[8192];
-                int n;
-                OutputStream out = sock.getOutputStream();
-                while ((n = fis.read(buf)) != -1) {
-                    out.write(buf, 0, n);
+            try (CipherOutputStream cos = new CipherOutputStream(dos, cipher);
+                 BufferedInputStream bis = new BufferedInputStream(new FileInputStream(file))) {
+
+                byte[] buffer = new byte[BUFFER_SIZE];
+                int read;
+                while ((read = bis.read(buffer)) != -1) {
+                    cos.write(buffer, 0, read);
                 }
-                out.flush();
+                cos.flush();
             }
 
         } catch (Exception e) {

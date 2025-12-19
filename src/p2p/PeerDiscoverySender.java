@@ -1,67 +1,65 @@
 package p2p;
 
-import java.net.*;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
-import java.util.Collections;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Broadcast discovery packet every second.
- * Format: username;localIP;servicePort[;fingerprint]
+ * PeerDiscoverySender
+ * --------------------
+ * Gửi broadcast UDP để thông báo sự tồn tại của peer trong LAN
+ * Format gói tin (UTF-8):
+ *   DISCOVER|username|tcpPort
  */
 public class PeerDiscoverySender extends Thread {
+
     private final String username;
     private final int servicePort;
     private final int discoveryPort;
-    private volatile boolean running = true;
+
+    private final AtomicBoolean running = new AtomicBoolean(true);
 
     public PeerDiscoverySender(String username, int servicePort, int discoveryPort) {
         this.username = username;
         this.servicePort = servicePort;
         this.discoveryPort = discoveryPort;
+        setName("PeerDiscoverySender");
         setDaemon(true);
-    }
-
-    public void shutdown() {
-        running = false;
-        interrupt();
     }
 
     @Override
     public void run() {
         try (DatagramSocket socket = new DatagramSocket()) {
             socket.setBroadcast(true);
-            socket.setReuseAddress(true);
 
-            SettingsStore ss = new SettingsStore();
-            String myFp = ss.getAccountFingerprint();
+            while (running.get()) {
+                String msg = "DISCOVER|" + username + "|" + servicePort;
+                byte[] data = msg.getBytes(StandardCharsets.UTF_8);
 
-            while (running) {
-                for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
-                    if (!ni.isUp() || ni.isLoopback()) continue;
+                // broadcast tới toàn mạng LAN
+                DatagramPacket packet = new DatagramPacket(
+                        data,
+                        data.length,
+                        InetAddress.getByName("255.255.255.255"),
+                        discoveryPort
+                );
 
-                    for (InterfaceAddress ia : ni.getInterfaceAddresses()) {
-                        InetAddress broadcast = ia.getBroadcast();
-                        if (broadcast == null) continue;
+                socket.send(packet);
 
-                        String localIP = ia.getAddress().getHostAddress();
-
-                        String msg = username + ";" + localIP + ";" + servicePort +
-                                (myFp != null && !myFp.isBlank() ? ";" + myFp : "");
-
-                        byte[] data = msg.getBytes(StandardCharsets.UTF_8);
-
-                        DatagramPacket packet = new DatagramPacket(
-                                data, data.length, broadcast, discoveryPort
-                        );
-
-                        socket.send(packet);
-                    }
-                }
-                Thread.sleep(1000);
+                // gửi mỗi 2 giây
+                Thread.sleep(2000);
             }
         } catch (Exception e) {
-            if (running) e.printStackTrace();
+            if (running.get()) {
+                e.printStackTrace();
+            }
         }
     }
 
+    public void shutdown() {
+        running.set(false);
+        interrupt();
+    }
 }

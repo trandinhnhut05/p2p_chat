@@ -1,84 +1,90 @@
 package p2p.crypto;
 
-import p2p.PeerClient;
-
+import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
-import java.security.KeyFactory;
-import java.security.PrivateKey;
-import java.security.PublicKey;
-import java.security.spec.X509EncodedKeySpec;
-import java.security.spec.PKCS8EncodedKeySpec;
-import java.util.Base64;
+import javax.crypto.spec.SecretKeySpec;
+import java.security.SecureRandom;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Quản lý AES session key và RSA public key của peer.
+ * KeyManager
+ * ----------
+ * Quản lý AES session key cho từng peer (theo peerId / fingerprint)
  */
 public class KeyManager {
 
+    private static final String AES = "AES";
+
+    // peerId -> AES SecretKey
     private final Map<String, SecretKey> sessionKeys = new ConcurrentHashMap<>();
-    private final Map<String, PublicKey> peerPublicKeys = new ConcurrentHashMap<>();
-    private PrivateKey myPrivateKey; // private key của chính mình
 
-    public KeyManager() {
-    }
+    public KeyManager() {}
 
-    // --- AES session key ---
-    public SecretKey getSessionKey(String peerId) {
+    /* ================= SESSION KEY ================= */
+
+    public synchronized SecretKey getSessionKey(String peerId) {
         return sessionKeys.get(peerId);
     }
 
-    public void storeSessionKey(String peerId, SecretKey key) {
+    public synchronized SecretKey createSessionKey(String peerId) throws Exception {
+        if (sessionKeys.containsKey(peerId))
+            return sessionKeys.get(peerId);
+
+        KeyGenerator kg = KeyGenerator.getInstance(AES);
+        kg.init(128, new SecureRandom());
+        SecretKey key = kg.generateKey();
+        sessionKeys.put(peerId, key);
+        return key;
+    }
+
+    public synchronized void storeSessionKey(String peerId, byte[] rawKey) {
+        SecretKey key = new SecretKeySpec(rawKey, AES);
         sessionKeys.put(peerId, key);
     }
 
     /**
-     * Tạo AES key mới
+     * Dùng khi cần chắc chắn peer có key (chat, video)
      */
-    public SecretKey createSessionKey() throws Exception {
-        return KeyGenerator.getInstance("AES").generateKey();
-    }
-
-    /**
-     * Tạo AES key mới và gửi đến peer qua RSA
-     */
-    public SecretKey createAndSendSessionKey(String peerId) throws Exception {
-        SecretKey key = createSessionKey();
-        storeSessionKey(peerId, key);
-
-        PublicKey pub = peerPublicKeys.get(peerId);
-        if (pub != null) {
-            byte[] encryptedKey = encryptSessionKeyForPeer(key, pub);
-            PeerClient.sendRawKeyToPeer(peerId, encryptedKey);
-        }
-
+    public synchronized SecretKey getOrCreate(String peerId) throws Exception {
+        SecretKey key = sessionKeys.get(peerId);
+        if (key == null)
+            key = createSessionKey(peerId);
         return key;
     }
 
-    /**
-     * Mã hóa AES key bằng RSA của peer
-     */
-    public byte[] encryptSessionKeyForPeer(SecretKey key, PublicKey peerPub) throws Exception {
-        return CryptoUtils.encryptRSA(key.getEncoded(), peerPub);
-    }
+    /* ================= CIPHER ================= */
 
     /**
-     * Giải mã AES key nhận từ peer bằng private key của mình
+     * Dùng cho PeerHandler / FileReceiver
      */
-    public SecretKey decryptRSAKey(byte[] encKey) throws Exception {
-        if (myPrivateKey == null) throw new IllegalStateException("Private key not set");
-        byte[] keyBytes = CryptoUtils.decryptRSA(encKey, myPrivateKey);
-        return new javax.crypto.spec.SecretKeySpec(keyBytes, "AES");
+    public Cipher createAESCipher(int mode, String peerId) throws Exception {
+        SecretKey key = getOrCreate(peerId);
+        Cipher cipher = Cipher.getInstance(AES);
+        cipher.init(mode, key);
+        return cipher;
     }
 
-    // --- RSA keys ---
-    public void setPrivateKey(PrivateKey pk) {
-        this.myPrivateKey = pk;
+    /* ================= BYTE ENCRYPT ================= */
+
+    public byte[] encrypt(String peerId, byte[] plain) throws Exception {
+        Cipher cipher = createAESCipher(Cipher.ENCRYPT_MODE, peerId);
+        return cipher.doFinal(plain);
     }
 
-    public void storePeerPublicKey(String peerId, PublicKey pub) {
-        peerPublicKeys.put(peerId, pub);
+    public byte[] decrypt(String peerId, byte[] encrypted) throws Exception {
+        Cipher cipher = createAESCipher(Cipher.DECRYPT_MODE, peerId);
+        return cipher.doFinal(encrypted);
+    }
+
+    /* ================= VIDEO / FUTURE ================= */
+
+    /**
+     * Placeholder – nếu sau này gửi key qua socket
+     */
+    public void createAndSendSessionKey(String peerId) throws Exception {
+        createSessionKey(peerId);
+        // gửi raw key qua socket (nếu cần)
     }
 }

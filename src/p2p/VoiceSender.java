@@ -16,11 +16,16 @@ public class VoiceSender extends Thread {
     private final KeyManager keyManager;
     private volatile boolean running = true;
 
-    public VoiceSender(InetAddress target, int port, KeyManager keyManager) {
+    private final String callKey;
+
+    public VoiceSender(InetAddress target, int port,
+                       KeyManager keyManager, String callKey) {
         this.target = target;
         this.port = port;
         this.keyManager = keyManager;
+        this.callKey = callKey;
     }
+
 
     @Override
     public void run() {
@@ -37,7 +42,7 @@ public class VoiceSender extends Thread {
             while (running) {
                 int n = microphone.read(buffer, 0, buffer.length);
                 if (n > 0) {
-                    SecretKey aes = keyManager.getSessionKey(target.getHostAddress());
+                    SecretKey aes = keyManager.getOrCreate(callKey);
                     if (aes == null) continue;
 
                     IvParameterSpec iv = CryptoUtils.generateIv();

@@ -1,109 +1,101 @@
 package p2p;
 
-import javax.crypto.SecretKey;
-import java.security.KeyPair;
-import java.security.PrivateKey;
-import java.security.PublicKey;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
+import java.net.InetAddress;
+import java.util.Objects;
 
 /**
- * Đại diện 1 peer trong P2P, lưu AES session key và RSA key pair.
+ * Peer
+ * ----
+ * Đại diện cho 1 peer trong mạng P2P
  */
 public class Peer {
 
-    public String username;
-    public String ip;
-    public int port;
+    private final InetAddress address;
+    private final int servicePort;
+    private final String username;
+    private final String fingerprint;
 
-    private long lastPingMs = -1; // mặc định chưa ping
-    private String fingerprint; // fingerprint định danh
-    private boolean muted;
-    private boolean blocked;
     private long lastSeen;
-    private String lastMessage;
+    private String lastMessage = "";
 
-    // RSA key pair của peer
-    private KeyPair keyPair;
-
-    // AES session key cho peer này (E2EE)
-    private final ConcurrentMap<String, SecretKey> sessionKeys = new ConcurrentHashMap<>();
-
-    public Peer(String username, String ip, int port) {
+    public Peer(InetAddress address,
+                int servicePort,
+                String username,
+                String fingerprint) {
+        this.address = address;
+        this.servicePort = servicePort;
         this.username = username;
-        this.ip = ip;
-        this.port = port;
+        this.fingerprint = fingerprint;
+        this.lastSeen = System.currentTimeMillis();
     }
 
-    // --- Getter/Setter ---
+    /* ================= GETTERS ================= */
 
-
-    public int getPort() {
-        return port;
-    }
-
-    public void setPort(int port) {
-        this.port = port;
-
+    public InetAddress getAddress() {
+        return address;
     }
 
     public String getIp() {
-        return ip;
+        return address.getHostAddress();
     }
 
-    public void setIp(String ip) {
-        this.ip = ip;
+    public int getServicePort() {
+        return servicePort;
     }
 
-    public String getFingerprint() { return fingerprint; }
-    public void setFingerprint(String fingerprint) { this.fingerprint = fingerprint; }
+    public String getUsername() {
+        return username;
+    }
 
-    public boolean isMuted() { return muted; }
-    public void setMuted(boolean muted) { this.muted = muted; }
+    public void setLastSeen(long lastSeen) {
+        this.lastSeen = lastSeen;
+    }
 
-    public boolean isBlocked() { return blocked; }
-    public void setBlocked(boolean blocked) { this.blocked = blocked; }
 
-    public long getLastSeen() { return lastSeen; }
-    public void setLastSeen(long lastSeen) { this.lastSeen = lastSeen; }
-
-    public long getLastPingMs() { return lastPingMs; }
-    public void setLastPingMs(long rtt) { this.lastPingMs = rtt; }
-
-    public String getLastMessage() { return lastMessage; }
-    public void setLastMessage(String lastMessage) { this.lastMessage = lastMessage; }
-
-    // định danh peer (fingerprint ưu tiên)
+    /**
+     * peerId = fingerprint
+     */
     public String getId() {
-        return (fingerprint != null && !fingerprint.isBlank()) ? fingerprint : ip + "_" + port;
+        return fingerprint;
     }
 
-    // --- RSA key pair ---
-    public void setKeyPair(KeyPair kp) { this.keyPair = kp; }
-    public PrivateKey getPrivateKey() {
-        return (keyPair != null) ? keyPair.getPrivate() : null;
-    }
-    public PublicKey getPublicKey() {
-        return (keyPair != null) ? keyPair.getPublic() : null;
+    public long getLastSeen() {
+        return lastSeen;
     }
 
-    // --- AES session key management ---
-    public void setSessionKey(String peerId, SecretKey key) { sessionKeys.put(peerId, key); }
-    public SecretKey getSessionKey(String peerId) { return sessionKeys.get(peerId); }
+    public String getLastMessage() {
+        return lastMessage;
+    }
 
-    // equality cho peerList
+    /* ================= SETTERS ================= */
+
+    public void updateLastSeen() {
+        this.lastSeen = System.currentTimeMillis();
+    }
+
+    public void setLastMessage(String lastMessage) {
+        this.lastMessage = lastMessage;
+    }
+
+    /* ================= OVERRIDE ================= */
+
     @Override
     public boolean equals(Object o) {
+        if (this == o) return true;
         if (!(o instanceof Peer)) return false;
-        Peer other = (Peer) o;
-        if (fingerprint != null && !fingerprint.isBlank() && other.fingerprint != null && !other.fingerprint.isBlank())
-            return fingerprint.equals(other.fingerprint);
-        return ip.equals(other.ip) && port == other.port;
+        Peer peer = (Peer) o;
+        return Objects.equals(fingerprint, peer.fingerprint);
     }
 
     @Override
     public int hashCode() {
-        if (fingerprint != null && !fingerprint.isBlank()) return fingerprint.hashCode();
-        return (ip + "_" + port).hashCode();
+        return Objects.hash(fingerprint);
+    }
+
+    @Override
+    public String toString() {
+        return username + " (" +
+                address.getHostAddress() + ":" +
+                servicePort + ")";
     }
 }

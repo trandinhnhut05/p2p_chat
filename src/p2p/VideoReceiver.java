@@ -1,70 +1,122 @@
 package p2p;
 
-import p2p.crypto.CryptoUtils;
-import p2p.crypto.KeyManager;
-
 import javafx.application.Platform;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import org.opencv.core.*;
+import org.opencv.imgcodecs.Imgcodecs;
+import p2p.crypto.CryptoUtils;
+import p2p.crypto.KeyManager;
 
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
 import java.io.ByteArrayInputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.util.Arrays;
 
 public class VideoReceiver extends Thread {
 
     private final int port;
     private final KeyManager keyManager;
-    private volatile boolean running = true;
     private final ImageView imageView;
+    private volatile boolean running = true;
 
-    public VideoReceiver(int port, KeyManager keyManager, ImageView imageView) {
+    private byte[][] chunks;
+    private int receivedChunks = 0;
+    private int expectedChunks = -1;
+
+    static {
+        System.loadLibrary("opencv_java4120");
+    }
+
+    private final String callKey;
+
+    public VideoReceiver(int port, KeyManager keyManager,
+                         ImageView imageView, String callKey) {
         this.port = port;
         this.keyManager = keyManager;
         this.imageView = imageView;
+        this.callKey = callKey;
     }
+
 
     @Override
     public void run() {
-        try (DatagramSocket ds = new DatagramSocket(port)) {
-            byte[] buf = new byte[65535];
+        try (DatagramSocket socket = new DatagramSocket(port)) {
+
+            byte[] buffer = new byte[1500];
 
             while (running) {
-                DatagramPacket pkt = new DatagramPacket(buf, buf.length);
-                ds.receive(pkt);
+                DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+                socket.receive(packet);
 
-                if (pkt.getLength() < 20) continue;
+                int index = packet.getData()[0] & 0xFF;
+                int total = packet.getData()[1] & 0xFF;
 
-                byte[] ivBytes = new byte[16];
-                System.arraycopy(pkt.getData(), 0, ivBytes, 0, 16);
-                IvParameterSpec iv = new IvParameterSpec(ivBytes);
+                if (chunks == null || expectedChunks != total) {
+                    chunks = new byte[total][];
+                    receivedChunks = 0;
+                    expectedChunks = total;
+                }
 
-                byte[] encrypted = new byte[pkt.getLength() - 16];
-                System.arraycopy(pkt.getData(), 16, encrypted, 0, encrypted.length);
+                byte[] data = Arrays.copyOfRange(packet.getData(), 2, packet.getLength());
+                chunks[index] = data;
+                receivedChunks++;
 
-                String peerId = pkt.getAddress().getHostAddress() + ":" + port;
-                SecretKey aes = keyManager.getSessionKey(peerId);
+                // Nhận đủ frame
+                if (receivedChunks == expectedChunks) {
+                    int size = Arrays.stream(chunks).mapToInt(a -> a.length).sum();
+                    byte[] full = new byte[size];
+                    int pos = 0;
 
-                if (aes == null) continue;
+                    for (byte[] c : chunks) {
+                        System.arraycopy(c, 0, full, pos, c.length);
+                        pos += c.length;
+                    }
 
-                byte[] decrypted = CryptoUtils.decryptAES(encrypted, aes, iv);
-                if (decrypted == null || decrypted.length == 0) continue;
+                    // Tách IV + encrypted
+                    byte[] ivBytes = Arrays.copyOfRange(full, 0, 16);
+                    byte[] encrypted = Arrays.copyOfRange(full, 16, full.length);
 
-                Image img = new Image(new ByteArrayInputStream(decrypted));
-                if (img.isError()) continue;
+                    SecretKey aes = keyManager.getOrCreate(callKey);
 
-                Platform.runLater(() -> imageView.setImage(img));
+                    byte[] decrypted = CryptoUtils.decryptAES(
+                            encrypted,
+                            aes,
+                            new IvParameterSpec(ivBytes)
+                    );
+
+                    Mat img = Imgcodecs.imdecode(
+                            new MatOfByte(decrypted),
+                            Imgcodecs.IMREAD_COLOR
+                    );
+
+                    if (!img.empty()) {
+                        Image fxImg = matToImage(img);
+                        Platform.runLater(() -> imageView.setImage(fxImg));
+                    }
+
+                    chunks = null;
+                    receivedChunks = 0;
+                }
             }
 
         } catch (Exception e) {
-            e.printStackTrace();
+            if (running) e.printStackTrace();
         }
     }
 
     public void stopReceive() {
         running = false;
         interrupt();
+        Platform.runLater(() -> imageView.setImage(null));
+    }
+
+
+    private static Image matToImage(Mat mat) {
+        MatOfByte buf = new MatOfByte();
+        Imgcodecs.imencode(".jpg", mat, buf);
+        return new Image(new ByteArrayInputStream(buf.toArray()));
     }
 }

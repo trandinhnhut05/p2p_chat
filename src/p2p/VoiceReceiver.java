@@ -14,10 +14,14 @@ public class VoiceReceiver extends Thread {
     private final KeyManager keyManager;
     private volatile boolean running = true;
 
-    public VoiceReceiver(int port, KeyManager keyManager) {
+    private final String callKey;
+
+    public VoiceReceiver(int port, KeyManager keyManager, String callKey) {
         this.port = port;
-        this.keyManager = keyManager;
+        this.keyManager=keyManager;
+        this.callKey = callKey;
     }
+
 
     @Override
     public void run() {
@@ -43,8 +47,8 @@ public class VoiceReceiver extends Thread {
                 byte[] encrypted = new byte[pkt.getLength() - 16];
                 System.arraycopy(pkt.getData(), 16, encrypted, 0, encrypted.length);
 
-                String senderIp = pkt.getAddress().getHostAddress();
-                SecretKey aes = keyManager.getSessionKey(senderIp);
+//                String senderIp = pkt.getAddress().getHostAddress();
+                SecretKey aes = keyManager.getOrCreate(callKey);
                 if (aes == null) continue;
 
                 byte[] decrypted = CryptoUtils.decryptAES(encrypted, aes, iv);

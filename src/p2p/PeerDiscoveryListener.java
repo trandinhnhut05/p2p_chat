@@ -2,124 +2,114 @@ package p2p;
 
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
-import java.net.InetSocketAddress;
+import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Discovery listener that:
- * - binds with setReuseAddress(true)
- * - updates peer.lastSeen on each discovery packet
- * - parses optional fingerprint field
+ * PeerDiscoveryListener
+ * ----------------------
+ * Lắng nghe UDP broadcast trong LAN để phát hiện peer online
+ * Format gói tin:
+ *   DISCOVER|username|tcpPort
  */
 public class PeerDiscoveryListener extends Thread {
-    private final List<Peer> peers = new ArrayList<>();
-    private volatile boolean running = true;
-    private final int discoveryPort;
 
-    public static final long PEER_TIMEOUT_MS = 8_000L;
+    public static final long PEER_TIMEOUT_MS = 5000; // 5s coi như offline
+
+    private final int discoveryPort;
+    private final AtomicBoolean running = new AtomicBoolean(true);
+
+    // key = ip:port
+    private final Map<String, Peer> peers = new ConcurrentHashMap<>();
 
     public PeerDiscoveryListener(int discoveryPort) {
         this.discoveryPort = discoveryPort;
+        setName("PeerDiscoveryListener");
         setDaemon(true);
-    }
-
-    public void shutdown() {
-        running = false;
-        interrupt();
     }
 
     @Override
     public void run() {
-        DatagramSocket socket = null;
-        try {
-            socket = new DatagramSocket(null);
-            socket.setReuseAddress(true);
-            socket.bind(new InetSocketAddress(discoveryPort));
+        try (DatagramSocket socket = new DatagramSocket(discoveryPort)) {
+            byte[] buffer = new byte[2048];
 
-            byte[] buffer = new byte[1024];
-            while (running) {
+            while (running.get()) {
                 DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                 socket.receive(packet);
 
-                String data = new String(packet.getData(), 0, packet.getLength(), StandardCharsets.UTF_8);
-                String[] parts = data.split(";");
-                if (parts.length < 3) continue;
+                String msg = new String(packet.getData(), 0, packet.getLength(), StandardCharsets.UTF_8);
+                InetAddress addr = packet.getAddress();
 
-                String uname = parts[0];
-                String ip = parts[1];
-                int port;
-                try { port = Integer.parseInt(parts[2]); } catch (NumberFormatException ex) { continue; }
-
-                String fp = null;
-                if (parts.length >= 4) {
-                    fp = parts[3].trim();
-                    if (fp.isEmpty()) fp = null;
-                }
-
-                long now = System.currentTimeMillis();
-
-                synchronized (peers) {
-                    boolean found = false;
-                    for (Peer p : peers) {
-                        if (p.ip.equals(ip) && p.port == port) {
-                            p.setLastSeen(now);
-                            // if discovery carries fingerprint and peer doesn't have it yet -> set it
-                            if (fp != null && (p.getFingerprint() == null || p.getFingerprint().isEmpty())) {
-                                p.setFingerprint(fp);
-                            }
-                            // optionally update username
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found) {
-                        Peer p = new Peer(uname, ip, port);
-                        p.setLastSeen(now);
-                        if (fp != null) p.setFingerprint(fp);
-                        peers.add(p);
-                    }
-                }
+                handlePacket(addr.getHostAddress(), msg);
             }
         } catch (Exception e) {
-            if (running) e.printStackTrace();
-        } finally {
-            if (socket != null) socket.close();
+            if (running.get()) {
+                e.printStackTrace();
+            }
         }
     }
 
+    private void handlePacket(String ip, String msg) {
+        try {
+            if (!msg.startsWith("DISCOVER|")) return;
+
+            String[] parts = msg.split("\\|");
+            if (parts.length < 3) return;
+
+            String username = parts[1];
+            int port = Integer.parseInt(parts[2]);
+
+            String fingerprint = ip + ":" + port;
+            String key = fingerprint;
+
+            Peer peer = peers.get(key);
+
+            if (peer == null) {
+                peer = new Peer(
+                        InetAddress.getByName(ip),
+                        port,
+                        username,
+                        fingerprint
+                );
+                peers.put(key, peer);
+            }
+
+            peer.updateLastSeen();
+
+        } catch (Exception ignored) {
+        }
+    }
+
+
     /**
-     * Return a snapshot list of peers, after removing timed-out peers.
+     * Lấy snapshot danh sách peer (dùng cho UI thread)
      */
     public List<Peer> snapshot() {
         long now = System.currentTimeMillis();
-        synchronized (peers) {
-            Iterator<Peer> it = peers.iterator();
-            while (it.hasNext()) {
-                Peer p = it.next();
-                if (now - p.getLastSeen() > PEER_TIMEOUT_MS) it.remove();
+        List<Peer> list = new ArrayList<>();
+
+        for (Peer p : peers.values()) {
+            if (now - p.getLastSeen() <= PEER_TIMEOUT_MS) {
+                list.add(p);
             }
-            return new ArrayList<>(peers);
         }
+        return list;
     }
 
     /**
-     * Manually remove a peer by ip+port (used by UI "Remove" action).
-     * Returns true if removed.
+     * Remove peer theo IP (dùng khi user xóa thủ công)
      */
-    public boolean removePeer(String ip, int port) {
-        synchronized (peers) {
-            Iterator<Peer> it = peers.iterator();
-            while (it.hasNext()) {
-                Peer p = it.next();
-                if (p.ip.equals(ip) && p.port == port) {
-                    it.remove();
-                    return true;
-                }
-            }
-            return false;
-        }
+    public boolean removePeer(String ip) {
+        return peers.entrySet().removeIf(e -> e.getValue().getIp().equals(ip));
+    }
+
+    public void shutdown() {
+        running.set(false);
+        interrupt();
     }
 }
