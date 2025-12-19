@@ -45,6 +45,58 @@ public class PeerClient {
             e.printStackTrace();
         }
     }
+    /* ================= CALL ================= */
+
+    public static void sendCallRequest(Peer peer,
+                                       int videoPort,
+                                       int audioPort) {
+        try (Socket socket =
+                     new Socket(peer.getAddress(), peer.getServicePort());
+             DataOutputStream dos =
+                     new DataOutputStream(socket.getOutputStream())) {
+
+            dos.writeUTF("CALL_REQUEST");
+            dos.writeInt(videoPort);
+            dos.writeInt(audioPort);
+            dos.flush();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static void sendCallAccept(Peer peer,
+                                      int videoPort,
+                                      int audioPort) {
+        try (Socket socket =
+                     new Socket(peer.getAddress(), peer.getServicePort());
+             DataOutputStream dos =
+                     new DataOutputStream(socket.getOutputStream())) {
+
+            dos.writeUTF("CALL_ACCEPT");
+            dos.writeInt(videoPort);
+            dos.writeInt(audioPort);
+            dos.flush();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static void sendCallEnd(Peer peer) {
+        try (Socket socket =
+                     new Socket(peer.getAddress(), peer.getServicePort());
+             DataOutputStream dos =
+                     new DataOutputStream(socket.getOutputStream())) {
+
+            dos.writeUTF("CALL_END");
+            dos.flush();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
 
     /* ================= FILE ================= */
 

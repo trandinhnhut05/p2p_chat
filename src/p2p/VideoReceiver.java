@@ -25,6 +25,8 @@ public class VideoReceiver extends Thread {
     private byte[][] chunks;
     private int receivedChunks = 0;
     private int expectedChunks = -1;
+    private DatagramSocket socket;
+
 
     static {
         System.loadLibrary("opencv_java4120");
@@ -43,14 +45,15 @@ public class VideoReceiver extends Thread {
 
     @Override
     public void run() {
-        try (DatagramSocket socket = new DatagramSocket(port)) {
-
+        try  {
+            socket = new DatagramSocket(port);
             byte[] buffer = new byte[1500];
 
             while (running) {
                 DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                 socket.receive(packet);
 
+                if (!running) break;
                 int index = packet.getData()[0] & 0xFF;
                 int total = packet.getData()[1] & 0xFF;
 
@@ -109,9 +112,12 @@ public class VideoReceiver extends Thread {
 
     public void stopReceive() {
         running = false;
-        interrupt();
+        if (socket != null && !socket.isClosed()) {
+            socket.close(); // 🔥 QUAN TRỌNG
+        }
         Platform.runLater(() -> imageView.setImage(null));
     }
+
 
 
     private static Image matToImage(Mat mat) {

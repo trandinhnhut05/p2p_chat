@@ -35,34 +35,71 @@ public class PeerHandler implements Runnable {
     }
 
 
+
     @Override
     public void run() {
         try (DataInputStream dis = new DataInputStream(socket.getInputStream())) {
 
             String type = dis.readUTF();
 
-            if ("SESSION_KEY".equals(type)) {
+            switch (type) {
 
-                String peerId = dis.readUTF();
-                byte[] keyBytes = new byte[16];
-                dis.readFully(keyBytes);
+                /* ========== SESSION KEY ========== */
+                case "SESSION_KEY" -> {
+                    String peerId = dis.readUTF();
+                    byte[] keyBytes = new byte[16];
+                    dis.readFully(keyBytes);
 
-                keyManager.storeSessionKey(peerId, keyBytes);
+                    keyManager.storeSessionKey(peerId, keyBytes);
 
-                Platform.runLater(() ->
-                        mainUI.startCallFromRemote(peer)
-                );
+                    System.out.println("🔐 Session key stored from " + peerId);
+                }
 
-            } else if ("MSG".equals(type)) {
-                handleMessage(dis);
-            } else if ("FILE".equals(type)) {
-                handleFile();
+                /* ========== CALL REQUEST ========== */
+                case "CALL_REQUEST" -> {
+                    int videoPort = dis.readInt();
+                    int audioPort = dis.readInt();
+
+                    peer.setVideoPort(videoPort);
+                    peer.setAudioPort(audioPort);
+
+                    Platform.runLater(() ->
+                            mainUI.onIncomingCall(peer)
+                    );
+                }
+
+                /* ========== CALL ACCEPT ========== */
+                case "CALL_ACCEPT" -> {
+                    int videoPort = dis.readInt();
+                    int audioPort = dis.readInt();
+
+                    peer.setVideoPort(videoPort);
+                    peer.setAudioPort(audioPort);
+
+                    Platform.runLater(() ->
+                            mainUI.startCallFromRemote(peer)
+                    );
+                }
+
+                /* ========== CALL END ========== */
+                case "CALL_END" -> {
+                    Platform.runLater(() ->
+                            mainUI.stopCallFromRemote(peer)
+                    );
+                }
+
+                /* ========== MESSAGE ========== */
+                case "MSG" -> handleMessage(dis);
+
+                /* ========== FILE ========== */
+                case "FILE" -> handleFile();
             }
 
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
+
 
 
 

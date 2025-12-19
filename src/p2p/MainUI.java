@@ -34,7 +34,9 @@ public class MainUI extends Application
     private VoiceSender voiceSender;
     private VoiceReceiver voiceReceiver;
 
-    private static final int AUDIO_PORT = 7000;
+    private int localVideoPort;
+    private int localAudioPort;
+
 
 
 
@@ -70,7 +72,6 @@ public class MainUI extends Application
     private VideoSender videoSender;
     private VideoReceiver videoReceiver;
     private boolean inCall = false;
-    private static final int VIDEO_PORT = 8000;
 
     /* ===================================================== */
 
@@ -79,6 +80,9 @@ public class MainUI extends Application
         localIP = InetAddress.getLocalHost().getHostAddress();
         keyManager = new KeyManager();
         settingsStore = new SettingsStore();
+        localVideoPort = servicePort + 100;
+        localAudioPort = servicePort + 200;
+
 
         /* ---------- TOP BAR ---------- */
         TextField txtName = new TextField(username);
@@ -275,68 +279,50 @@ public class MainUI extends Application
         Peer p = tblPeers.getSelectionModel().getSelectedItem();
         if (p == null || inCall) return;
 
-        try {
-            String callKey = "CALL-" + p.getId();
+        PeerClient.sendCallRequest(
+                p,
+                localVideoPort,
+                localAudioPort
+        );
 
-            keyManager.createAndSendSessionKey(p.getId());
-
-            videoSender = new VideoSender(
-                    InetAddress.getByName(p.getIp()),
-                    VIDEO_PORT,
-                    keyManager,
-                    callKey
-            );
-            videoReceiver = new VideoReceiver(
-                    VIDEO_PORT,
-                    keyManager,
-                    videoView,
-                    callKey
-            );
-
-            voiceSender = new VoiceSender(
-                    InetAddress.getByName(p.getIp()),
-                    AUDIO_PORT,
-                    keyManager,
-                    callKey
-            );
-            voiceReceiver = new VoiceReceiver(
-                    AUDIO_PORT,
-                    keyManager,
-                    callKey
-            );
-
-            videoSender.start();
-            videoReceiver.start();
-            voiceSender.start();
-            voiceReceiver.start();
-
-            inCall = true;
-
-            btnVideoCall.setDisable(true);
-            btnEndVideo.setDisable(false);
-
-        } catch (Exception e) {
-            alert(e.getMessage());
-        }
+        System.out.println("📤 CALL_REQUEST sent to " + p.getUsername());
     }
+
 
 
 
     private void stopCall() {
         if (!inCall) return;
 
+        Peer p = tblPeers.getSelectionModel().getSelectedItem();
+        if (p != null) {
+            PeerClient.sendCallEnd(p);
+        }
+
+        stopCallInternal();
+    }
+    public void stopCallFromRemote(Peer peer) {
+        stopCallInternal();
+        System.out.println("📴 Call ended by " + peer.getUsername());
+    }
+
+    private void stopCallInternal() {
+
         if (videoSender != null) videoSender.stopSend();
         if (videoReceiver != null) videoReceiver.stopReceive();
         if (voiceSender != null) voiceSender.stopSend();
         if (voiceReceiver != null) voiceReceiver.stopReceive();
 
-        Platform.runLater(() -> videoView.setImage(null));
+        Platform.runLater(() -> {
+            videoView.setImage(null);
+            btnVideoCall.setDisable(false);
+            btnEndVideo.setDisable(true);
+        });
 
         inCall = false;
-
-        btnVideoCall.setDisable(false);
-        btnEndVideo.setDisable(true);
     }
+
+
 
 
 
@@ -384,29 +370,35 @@ public class MainUI extends Application
         try {
             String callKey = "CALL-" + peer.getId();
 
-            videoSender = new VideoSender(
-                    peer.getAddress(),
-                    VIDEO_PORT,
-                    keyManager,
-                    callKey
-            );
-
             videoReceiver = new VideoReceiver(
-                    VIDEO_PORT,
+                    localVideoPort,
                     keyManager,
                     videoView,
                     callKey
             );
 
-            voiceSender = new VoiceSender(
+            videoReceiver = new VideoReceiver(
+                    localVideoPort,
+                    keyManager,
+                    videoView,
+                    callKey
+            );
+
+            videoSender = new VideoSender(
                     peer.getAddress(),
-                    AUDIO_PORT,
+                    peer.getVideoPort(),   // 🔥 PORT CỦA PEER
                     keyManager,
                     callKey
             );
 
             voiceReceiver = new VoiceReceiver(
-                    AUDIO_PORT,
+                    localAudioPort,
+                    keyManager,
+                    callKey
+            );
+            voiceSender = new VoiceSender(
+                    peer.getAddress(),
+                    peer.getAudioPort(),   // 🔥 PORT CỦA PEER
                     keyManager,
                     callKey
             );
@@ -427,6 +419,38 @@ public class MainUI extends Application
             e.printStackTrace();
         }
     }
+
+    public void onIncomingCall(Peer peer) {
+
+        if (inCall) {
+            PeerClient.sendCallEnd(peer);
+            return;
+        }
+
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Incoming Call");
+        alert.setHeaderText("📞 " + peer.getUsername());
+        alert.setContentText("Accept call?");
+
+        ButtonType accept = new ButtonType("Accept");
+        ButtonType reject = new ButtonType("Reject");
+
+        alert.getButtonTypes().setAll(accept, reject);
+
+        alert.showAndWait().ifPresent(btn -> {
+            if (btn == accept) {
+                PeerClient.sendCallAccept(
+                        peer,
+                        localVideoPort,
+                        localAudioPort
+                );
+                startCallFromRemote(peer);
+            } else {
+                PeerClient.sendCallEnd(peer);
+            }
+        });
+    }
+
 
 
 }

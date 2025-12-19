@@ -18,6 +18,10 @@ public class Peer {
     private long lastSeen;
     private String lastMessage = "";
 
+
+    private int videoPort;
+    private int audioPort;
+
     public Peer(InetAddress address,
                 int servicePort,
                 String username,
@@ -65,6 +69,21 @@ public class Peer {
 
     public String getLastMessage() {
         return lastMessage;
+    }
+    public int getVideoPort() {
+        return videoPort;
+    }
+
+    public int getAudioPort() {
+        return audioPort;
+    }
+
+    public void setVideoPort(int videoPort) {
+        this.videoPort = videoPort;
+    }
+
+    public void setAudioPort(int audioPort) {
+        this.audioPort = audioPort;
     }
 
     /* ================= SETTERS ================= */

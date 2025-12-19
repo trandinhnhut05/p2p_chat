@@ -13,6 +13,8 @@ public class VoiceReceiver extends Thread {
     private final int port;
     private final KeyManager keyManager;
     private volatile boolean running = true;
+    private DatagramSocket ds;
+
 
     private final String callKey;
 
@@ -28,9 +30,9 @@ public class VoiceReceiver extends Thread {
         AudioFormat format = new AudioFormat(16000, 16, 1, true, true);
         DataLine.Info info = new DataLine.Info(SourceDataLine.class, format);
 
-        try (DatagramSocket ds = new DatagramSocket(port);
+        try (
              SourceDataLine speakers = (SourceDataLine) AudioSystem.getLine(info)) {
-
+            ds = new DatagramSocket(port);
             speakers.open(format);
             speakers.start();
 
@@ -40,6 +42,7 @@ public class VoiceReceiver extends Thread {
                 DatagramPacket pkt = new DatagramPacket(buf, buf.length);
                 ds.receive(pkt);
 
+                if (!running) break;
                 byte[] ivBytes = new byte[16];
                 System.arraycopy(pkt.getData(), 0, ivBytes, 0, 16);
                 IvParameterSpec iv = new IvParameterSpec(ivBytes);
@@ -62,6 +65,9 @@ public class VoiceReceiver extends Thread {
 
     public void stopReceive() {
         running = false;
-        this.interrupt();
+        if (ds != null && !ds.isClosed()) {
+            ds.close();
+        }
     }
+
 }
