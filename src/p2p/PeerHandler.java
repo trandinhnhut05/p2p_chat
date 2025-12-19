@@ -34,13 +34,26 @@ public class PeerHandler implements Runnable {
         this.mainUI = mainUI;
     }
 
+
     @Override
     public void run() {
         try (DataInputStream dis = new DataInputStream(socket.getInputStream())) {
 
             String type = dis.readUTF();
 
-            if ("MSG".equals(type)) {
+            if ("SESSION_KEY".equals(type)) {
+
+                String peerId = dis.readUTF();
+                byte[] keyBytes = new byte[16];
+                dis.readFully(keyBytes);
+
+                keyManager.storeSessionKey(peerId, keyBytes);
+
+                Platform.runLater(() ->
+                        mainUI.startCallFromRemote(peer)
+                );
+
+            } else if ("MSG".equals(type)) {
                 handleMessage(dis);
             } else if ("FILE".equals(type)) {
                 handleFile();
@@ -50,6 +63,8 @@ public class PeerHandler implements Runnable {
             e.printStackTrace();
         }
     }
+
+
 
     /* ================= MESSAGE ================= */
 

@@ -278,34 +278,40 @@ public class MainUI extends Application
         try {
             String callKey = "CALL-" + p.getId();
 
-            videoReceiver =
-                    new VideoReceiver(VIDEO_PORT, keyManager, videoView, callKey);
-            videoSender =
-                    new VideoSender(
-                            InetAddress.getByName(p.getIp()),
-                            VIDEO_PORT,
-                            keyManager,
-                            callKey
-                    );
+            keyManager.createAndSendSessionKey(p.getId());
 
-            voiceReceiver =
-                    new VoiceReceiver(AUDIO_PORT, keyManager, callKey);
-            voiceSender =
-                    new VoiceSender(
-                            InetAddress.getByName(p.getIp()),
-                            AUDIO_PORT,
-                            keyManager,
-                            callKey
-                    );
+            videoSender = new VideoSender(
+                    InetAddress.getByName(p.getIp()),
+                    VIDEO_PORT,
+                    keyManager,
+                    callKey
+            );
+            videoReceiver = new VideoReceiver(
+                    VIDEO_PORT,
+                    keyManager,
+                    videoView,
+                    callKey
+            );
 
-            videoReceiver.start();
+            voiceSender = new VoiceSender(
+                    InetAddress.getByName(p.getIp()),
+                    AUDIO_PORT,
+                    keyManager,
+                    callKey
+            );
+            voiceReceiver = new VoiceReceiver(
+                    AUDIO_PORT,
+                    keyManager,
+                    callKey
+            );
+
             videoSender.start();
-            voiceReceiver.start();
+            videoReceiver.start();
             voiceSender.start();
+            voiceReceiver.start();
 
             inCall = true;
 
-            // 🔥 UI
             btnVideoCall.setDisable(true);
             btnEndVideo.setDisable(false);
 
@@ -316,17 +322,14 @@ public class MainUI extends Application
 
 
 
-
     private void stopCall() {
         if (!inCall) return;
 
         if (videoSender != null) videoSender.stopSend();
         if (videoReceiver != null) videoReceiver.stopReceive();
-
         if (voiceSender != null) voiceSender.stopSend();
         if (voiceReceiver != null) voiceReceiver.stopReceive();
 
-        // clear UI
         Platform.runLater(() -> videoView.setImage(null));
 
         inCall = false;
@@ -334,6 +337,7 @@ public class MainUI extends Application
         btnVideoCall.setDisable(false);
         btnEndVideo.setDisable(true);
     }
+
 
 
 
@@ -373,5 +377,56 @@ public class MainUI extends Application
             cw.appendIncoming(peer.getUsername(), message);
         }
     }
+    public void startCallFromRemote(Peer peer) {
+
+        if (inCall) return;
+
+        try {
+            String callKey = "CALL-" + peer.getId();
+
+            videoSender = new VideoSender(
+                    peer.getAddress(),
+                    VIDEO_PORT,
+                    keyManager,
+                    callKey
+            );
+
+            videoReceiver = new VideoReceiver(
+                    VIDEO_PORT,
+                    keyManager,
+                    videoView,
+                    callKey
+            );
+
+            voiceSender = new VoiceSender(
+                    peer.getAddress(),
+                    AUDIO_PORT,
+                    keyManager,
+                    callKey
+            );
+
+            voiceReceiver = new VoiceReceiver(
+                    AUDIO_PORT,
+                    keyManager,
+                    callKey
+            );
+
+            videoSender.start();
+            videoReceiver.start();
+            voiceSender.start();
+            voiceReceiver.start();
+
+            inCall = true;
+
+            btnVideoCall.setDisable(true);
+            btnEndVideo.setDisable(false);
+
+            System.out.println("📞 Incoming call from " + peer.getUsername());
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
 
 }
