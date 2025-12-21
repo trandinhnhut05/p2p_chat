@@ -9,12 +9,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class PeerDiscoveryListener extends Thread {
 
     public static final long PEER_TIMEOUT_MS = 5000;
+    private final int localServicePort;
 
     private final int discoveryPort;
     private final AtomicBoolean running = new AtomicBoolean(true);
     private final Map<String, Peer> peers = new ConcurrentHashMap<>();
 
-    public PeerDiscoveryListener(int discoveryPort) {
+    public PeerDiscoveryListener(int localServicePort, int discoveryPort) {
+        this.localServicePort = localServicePort;
         this.discoveryPort = discoveryPort;
         setName("PeerDiscoveryListener");
         setDaemon(true);
@@ -25,11 +27,9 @@ public class PeerDiscoveryListener extends Thread {
         try {
             // 🔥 BẮT BUỘC bind 0.0.0.0
             InetAddress bindAddr = InetAddress.getByName("0.0.0.0");
-            DatagramSocket socket =
-                    new DatagramSocket(
-                            new InetSocketAddress(bindAddr, discoveryPort));
-
+            DatagramSocket socket = new DatagramSocket(null);
             socket.setReuseAddress(true);
+            socket.bind(new InetSocketAddress(bindAddr, discoveryPort));
             socket.setBroadcast(true);
 
             byte[] buffer = new byte[2048];
@@ -63,6 +63,8 @@ public class PeerDiscoveryListener extends Thread {
 
             String username = parts[1];
             int port = Integer.parseInt(parts[2]);
+            // 🔥 BỎ QUA CHÍNH MÌNH
+//            if (port == localServicePort) return;
 
             String key = ip + ":" + port;
 

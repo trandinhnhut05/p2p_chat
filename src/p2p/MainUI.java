@@ -30,6 +30,8 @@ public class MainUI extends Application
 
     private KeyManager keyManager;
     private PeerClient peerClient;
+    private boolean networkStarted = false;
+
 
     private SettingsStore settingsStore;
 
@@ -208,10 +210,15 @@ public class MainUI extends Application
 
     private void startNetwork() {
 
+        if (networkStarted) {
+            System.out.println("⚠ Network already started – ignore");
+            return;
+        }
+        networkStarted = true;
+
         String localPeerId = username + "@" + localIP;
         localVideoPort = servicePort + 100;
         localAudioPort = servicePort + 200;
-
 
         peerClient = new PeerClient(
                 keyManager,
@@ -220,17 +227,21 @@ public class MainUI extends Application
                 username
         );
 
-
-        discoveryListener = new PeerDiscoveryListener(discoveryPort);
+        // ✅ LISTENER – CHỈ START 1 LẦN
+        discoveryListener =
+                new PeerDiscoveryListener(discoveryPort, servicePort);
         discoveryListener.start();
 
+        // ✅ SENDER
         discoverySender =
                 new PeerDiscoverySender(username, servicePort, discoveryPort);
         discoverySender.start();
 
+        // ✅ SERVER
         peerServer = new PeerServer(servicePort, this);
         peerServer.start();
 
+        // ✅ UI REFRESH
         uiRefresher = Executors.newSingleThreadScheduledExecutor();
         uiRefresher.scheduleAtFixedRate(() -> {
             List<Peer> snap = discoveryListener.snapshot();
@@ -242,13 +253,17 @@ public class MainUI extends Application
     }
 
 
+
     private void stopNetwork() {
+        networkStarted = false;
+
         if (discoverySender != null) discoverySender.shutdown();
         if (discoveryListener != null) discoveryListener.shutdown();
         if (peerServer != null) peerServer.shutdown();
         if (uiRefresher != null) uiRefresher.shutdownNow();
         stopCall();
     }
+
 
     /* ================= CHAT ================= */
 

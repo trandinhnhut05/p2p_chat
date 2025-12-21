@@ -1,4 +1,4 @@
-
+package p2p;
 
 import javafx.application.Application;
 import p2p.MainUI;

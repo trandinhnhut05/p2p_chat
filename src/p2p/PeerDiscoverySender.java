@@ -35,7 +35,8 @@ public class PeerDiscoverySender extends Thread {
             socket.setBroadcast(true);
 
             InetAddress broadcast =
-                    InetAddress.getByName("255.255.255.255");
+                    InetAddress.getByName("192.168.1.255");
+
 
             while (running.get()) {
                 String msg =
