@@ -444,17 +444,25 @@ public class MainUI extends Application
 
         alert.showAndWait().ifPresent(btn -> {
             if (btn == accept) {
+                // Thay code cũ bằng đoạn Thread chờ
+                new Thread(() -> {
+                    int retries = 10;
+                    while (peer.getServicePort() <= 0 && retries-- > 0) {
+                        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
+                    }
 
-                if (peer.getServicePort() <= 0) {
-                    alert("Connection not ready yet. Please wait 1–2 seconds.");
-                    return;
-                }
-
-                peerClient.sendCallAccept(peer, localVideoPort, localAudioPort);
-                startCallFromRemote(peer);
+                    if (peer.getServicePort() > 0) {
+                        Platform.runLater(() -> {
+                            peerClient.sendCallAccept(peer, localVideoPort, localAudioPort);
+                            startCallFromRemote(peer);
+                        });
+                    } else {
+                        Platform.runLater(() -> alert("Connection not ready after waiting."));
+                    }
+                }).start();
             }
-
         });
+
     }
 
 
