@@ -55,13 +55,11 @@ public class PeerHandler implements Runnable {
                     System.out.println("🔐 Session key stored from " + peerId);
                 }
                 case "HELLO" -> {
-                    String username = dis.readUTF();
-                    int servicePort = dis.readInt();
+                    peer.setUsername(dis.readUTF());
+                    peer.setServicePort(dis.readInt());
 
-                    peer.setUsername(username);
-                    peer.setServicePort(servicePort);
-
-                    System.out.println("👋 HELLO from " + username + ":" + servicePort);
+                    System.out.println("👋 HELLO from " + peer.getUsername()
+                            + " servicePort=" + peer.getServicePort());
                 }
 
 

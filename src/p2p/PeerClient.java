@@ -11,12 +11,24 @@ public class PeerClient {
 
     private final KeyManager keyManager;
     private final String localPeerId;
+    private final int localServicePort;
+    private final String localUsername;
+
 
     // 🔥 Inject KeyManager qua constructor
-    public PeerClient(KeyManager keyManager, String localPeerId) {
+    public PeerClient(KeyManager keyManager, String localPeerId, int localServicePort, String localUsername) {
         this.keyManager = keyManager;
         this.localPeerId = localPeerId;
+        this.localServicePort = localServicePort;
+        this.localUsername = localUsername;
     }
+    private void sendHello(DataOutputStream dos) throws Exception {
+        dos.writeUTF("HELLO");
+        dos.writeUTF(localUsername);   // ✅ ĐÚNG
+        dos.writeInt(localServicePort);
+        dos.flush();
+    }
+
 
     /* ================= MESSAGE ================= */
 
@@ -30,6 +42,8 @@ public class PeerClient {
                      DataOutputStream dos =
                              new DataOutputStream(s.getOutputStream())) {
 
+                    sendHello(dos);
+
                     dos.writeUTF("SESSION_KEY");
                     dos.writeUTF(peer.getId());
                     dos.write(key.getEncoded());
@@ -42,6 +56,9 @@ public class PeerClient {
                  DataOutputStream dos =
                          new DataOutputStream(socket.getOutputStream())) {
 
+                // ✅ GỬI HELLO ĐẦU TIÊN
+                sendHello(dos);
+
                 dos.writeUTF("MSG");
 
                 byte[] encrypted =
@@ -51,6 +68,7 @@ public class PeerClient {
                 dos.write(encrypted);
                 dos.flush();
             }
+
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -88,12 +106,15 @@ public class PeerClient {
                  DataOutputStream dos =
                          new DataOutputStream(socket.getOutputStream())) {
 
+                sendHello(dos); // ✅ BẮT BUỘC
+
                 dos.writeUTF("CALL_REQUEST");
                 dos.writeUTF(callKey);
                 dos.writeInt(videoPort);
                 dos.writeInt(audioPort);
                 dos.flush();
             }
+
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -104,22 +125,34 @@ public class PeerClient {
     public void sendCallAccept(Peer peer,
                                int videoPort,
                                int audioPort) {
+
+        // 🚨 CHẶN PORT -1 / PORT RÁC
+        if (peer.getServicePort() <= 0) {
+            System.err.println(
+                    "❌ Cannot send CALL_ACCEPT, servicePort not known yet for peer: "
+                            + peer.getId()
+            );
+            return;
+        }
+
         try (Socket socket =
                      new Socket(peer.getAddress(), peer.getServicePort());
              DataOutputStream dos =
                      new DataOutputStream(socket.getOutputStream())) {
 
+            sendHello(dos); // ✅ QUAN TRỌNG NHẤT
+
             dos.writeUTF("CALL_ACCEPT");
             dos.writeUTF(peer.getCallKey());
             dos.writeInt(videoPort);
             dos.writeInt(audioPort);
-
             dos.flush();
-
-        } catch (Exception e) {
+        }
+        catch (Exception e) {
             e.printStackTrace();
         }
     }
+
 
     public void sendCallEnd(Peer peer) {
         try (Socket socket =

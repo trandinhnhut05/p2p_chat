@@ -81,11 +81,10 @@ public class MainUI extends Application
     public void start(Stage stage) throws Exception {
         localIP = InetAddress.getLocalHost().getHostAddress();
         keyManager = new KeyManager();
-        peerClient = new PeerClient(keyManager, localIP);
+
+
 
         settingsStore = new SettingsStore();
-        localVideoPort = servicePort + 100;
-        localAudioPort = servicePort + 200;
 
 
         /* ---------- TOP BAR ---------- */
@@ -208,6 +207,20 @@ public class MainUI extends Application
     /* ================= NETWORK ================= */
 
     private void startNetwork() {
+
+        String localPeerId = username + "@" + localIP;
+        localVideoPort = servicePort + 100;
+        localAudioPort = servicePort + 200;
+
+
+        peerClient = new PeerClient(
+                keyManager,
+                localPeerId,
+                servicePort,
+                username
+        );
+
+
         discoveryListener = new PeerDiscoveryListener(discoveryPort);
         discoveryListener.start();
 
@@ -228,6 +241,7 @@ public class MainUI extends Application
         }, 0, 1, TimeUnit.SECONDS);
     }
 
+
     private void stopNetwork() {
         if (discoverySender != null) discoverySender.shutdown();
         if (discoveryListener != null) discoveryListener.shutdown();
@@ -243,6 +257,11 @@ public class MainUI extends Application
         if (msg.isEmpty()) return;
 
         Peer p = tblPeers.getSelectionModel().getSelectedItem();
+        if (peerClient == null) {
+            alert("Please start network first");
+            return;
+        }
+
         if (p == null) {
             alert("Select a peer");
             return;
@@ -283,6 +302,10 @@ public class MainUI extends Application
     private void startCall() {
         Peer p = tblPeers.getSelectionModel().getSelectedItem();
         if (p == null || inCall) return;
+        if (peerClient == null) {
+            alert("Please start network first");
+            return;
+        }
 
         peerClient.sendCallRequest(
                 p,
@@ -370,45 +393,16 @@ public class MainUI extends Application
             cw.appendIncoming(peer.getUsername(), message);
         }
     }
-    public void startCallFromRemote(Peer peer) {
-
+    void startCallFromRemote(Peer peer) {
         if (inCall) return;
-
         try {
             String callKey = "CALL-" + peer.getId();
 
-            videoReceiver = new VideoReceiver(
-                    localVideoPort,
-                    keyManager,
-                    videoView,
-                    callKey
-            );
+            videoReceiver = new VideoReceiver(localVideoPort, keyManager, videoView, callKey);
+            videoSender = new VideoSender(peer.getAddress(), peer.getVideoPort(), keyManager, callKey);
 
-            videoReceiver = new VideoReceiver(
-                    localVideoPort,
-                    keyManager,
-                    videoView,
-                    callKey
-            );
-
-            videoSender = new VideoSender(
-                    peer.getAddress(),
-                    peer.getVideoPort(),   // 🔥 PORT CỦA PEER
-                    keyManager,
-                    callKey
-            );
-
-            voiceReceiver = new VoiceReceiver(
-                    localAudioPort,
-                    keyManager,
-                    callKey
-            );
-            voiceSender = new VoiceSender(
-                    peer.getAddress(),
-                    peer.getAudioPort(),   // 🔥 PORT CỦA PEER
-                    keyManager,
-                    callKey
-            );
+            voiceReceiver = new VoiceReceiver(localAudioPort, keyManager, callKey);
+            voiceSender = new VoiceSender(peer.getAddress(), peer.getAudioPort(), keyManager, callKey);
 
             videoSender.start();
             videoReceiver.start();
@@ -417,15 +411,19 @@ public class MainUI extends Application
 
             inCall = true;
 
-            btnVideoCall.setDisable(true);
-            btnEndVideo.setDisable(false);
+            Platform.runLater(() -> {
+                btnVideoCall.setDisable(true);
+                btnEndVideo.setDisable(false);
+            });
 
             System.out.println("📞 Incoming call from " + peer.getUsername());
 
         } catch (Exception e) {
             e.printStackTrace();
+            stopCallInternal(); // cleanup nếu start call lỗi
         }
     }
+
 
     public void onIncomingCall(Peer peer) {
 
@@ -446,11 +444,16 @@ public class MainUI extends Application
 
         alert.showAndWait().ifPresent(btn -> {
             if (btn == accept) {
+
+                if (peer.getServicePort() <= 0) {
+                    alert("Connection not ready yet. Please wait 1–2 seconds.");
+                    return;
+                }
+
                 peerClient.sendCallAccept(peer, localVideoPort, localAudioPort);
                 startCallFromRemote(peer);
-            } else {
-                peerClient.sendCallEnd(peer);
             }
+
         });
     }
 
