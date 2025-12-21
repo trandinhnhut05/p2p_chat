@@ -29,6 +29,8 @@ public class MainUI extends Application
         implements PeerServer.ConnectionListener {
 
     private KeyManager keyManager;
+    private PeerClient peerClient;
+
     private SettingsStore settingsStore;
 
     private VoiceSender voiceSender;
@@ -79,6 +81,7 @@ public class MainUI extends Application
     public void start(Stage stage) throws Exception {
         localIP = InetAddress.getLocalHost().getHostAddress();
         keyManager = new KeyManager();
+        peerClient = new PeerClient(keyManager);
         settingsStore = new SettingsStore();
         localVideoPort = servicePort + 100;
         localAudioPort = servicePort + 200;
@@ -247,7 +250,7 @@ public class MainUI extends Application
         txtChat.appendText("[YOU -> " + p.getUsername() + "] " + msg + "\n");
         txtInput.clear();
 
-        new Thread(() -> PeerClient.sendMessage(p, msg)).start();
+        new Thread(() -> peerClient.sendMessage(p, msg)).start();
 
         ChatWindow cw = openChats.get(p.getId());
         if (cw != null) cw.appendIncoming("YOU", msg);
@@ -269,7 +272,8 @@ public class MainUI extends Application
     private void openChat(Peer p) {
         openChats
                 .computeIfAbsent(p.getId(),
-                        k -> new ChatWindow(p, keyManager))
+                        k -> new ChatWindow(p, keyManager, peerClient)
+                )
                 .show();
     }
 
@@ -279,11 +283,12 @@ public class MainUI extends Application
         Peer p = tblPeers.getSelectionModel().getSelectedItem();
         if (p == null || inCall) return;
 
-        PeerClient.sendCallRequest(
+        peerClient.sendCallRequest(
                 p,
                 localVideoPort,
                 localAudioPort
         );
+
 
         System.out.println("📤 CALL_REQUEST sent to " + p.getUsername());
     }
@@ -296,7 +301,7 @@ public class MainUI extends Application
 
         Peer p = tblPeers.getSelectionModel().getSelectedItem();
         if (p != null) {
-            PeerClient.sendCallEnd(p);
+            peerClient.sendCallEnd(p);
         }
 
         stopCallInternal();
@@ -423,7 +428,7 @@ public class MainUI extends Application
     public void onIncomingCall(Peer peer) {
 
         if (inCall) {
-            PeerClient.sendCallEnd(peer);
+            peerClient.sendCallEnd(peer);
             return;
         }
 
@@ -439,14 +444,10 @@ public class MainUI extends Application
 
         alert.showAndWait().ifPresent(btn -> {
             if (btn == accept) {
-                PeerClient.sendCallAccept(
-                        peer,
-                        localVideoPort,
-                        localAudioPort
-                );
+                peerClient.sendCallAccept(peer, localVideoPort, localAudioPort);
                 startCallFromRemote(peer);
             } else {
-                PeerClient.sendCallEnd(peer);
+                peerClient.sendCallEnd(peer);
             }
         });
     }

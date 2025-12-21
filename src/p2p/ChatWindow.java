@@ -23,6 +23,8 @@ public class ChatWindow {
 
     private final Peer peer;
     private final KeyManager keyManager;
+    private final PeerClient peerClient;
+
 
     private final Stage stage;
     private final TextArea txtChat = new TextArea();
@@ -31,9 +33,10 @@ public class ChatWindow {
 
     private static final SimpleDateFormat TS = new SimpleDateFormat("HH:mm:ss");
 
-    public ChatWindow(Peer peer, KeyManager keyManager) {
+    public ChatWindow(Peer peer, KeyManager keyManager, PeerClient peerClient) {
         this.peer = peer;
         this.keyManager = keyManager;
+        this.peerClient = peerClient;
 
         stage = new Stage();
         stage.setTitle("Chat with " + peer.getUsername());
@@ -71,7 +74,7 @@ public class ChatWindow {
         appendOutgoing("YOU", text);
         txtInput.clear();
 
-        new Thread(() -> PeerClient.sendMessage(peer, text)).start();
+        new Thread(() -> peerClient.sendMessage(peer, text)).start();
         appendToHistoryFileStatic(peer, "YOU", text);
         peer.setLastMessage(text);
     }

@@ -2,32 +2,24 @@ package p2p;
 
 import p2p.crypto.KeyManager;
 
-import javax.crypto.Cipher;
-import javax.crypto.CipherOutputStream;
 import javax.crypto.SecretKey;
-import java.io.*;
+import java.io.DataOutputStream;
+import java.io.File;
 import java.net.Socket;
 
-/**
- * PeerClient
- * ----------
- * Chủ động kết nối tới peer khác để gửi dữ liệu
- */
 public class PeerClient {
 
-    private static KeyManager keyManager;
+    private final KeyManager keyManager;
 
-    public static void init(KeyManager km) {
-        keyManager = km;
+    // 🔥 Inject KeyManager qua constructor
+    public PeerClient(KeyManager keyManager) {
+        this.keyManager = keyManager;
     }
 
     /* ================= MESSAGE ================= */
 
-    public static void sendMessage(Peer peer, String message) {
-        if (keyManager == null) return;
-
+    public void sendMessage(Peer peer, String message) {
         try {
-            // 1️⃣ Đảm bảo có session key cho peer
             if (!keyManager.hasKey(peer.getId())) {
                 SecretKey key = keyManager.createSessionKey(peer.getId());
 
@@ -43,7 +35,6 @@ public class PeerClient {
                 }
             }
 
-            // 2️⃣ Gửi message đã mã hóa
             try (Socket socket =
                          new Socket(peer.getAddress(), peer.getServicePort());
                  DataOutputStream dos =
@@ -64,12 +55,11 @@ public class PeerClient {
         }
     }
 
-
     /* ================= CALL ================= */
 
-    public static void sendCallRequest(Peer peer,
-                                       int videoPort,
-                                       int audioPort) {
+    public void sendCallRequest(Peer peer,
+                                int videoPort,
+                                int audioPort) {
 
         String callKey = "CALL-" + peer.getId();
 
@@ -106,12 +96,9 @@ public class PeerClient {
         }
     }
 
-
-
-
-    public static void sendCallAccept(Peer peer,
-                                      int videoPort,
-                                      int audioPort) {
+    public void sendCallAccept(Peer peer,
+                               int videoPort,
+                               int audioPort) {
         try (Socket socket =
                      new Socket(peer.getAddress(), peer.getServicePort());
              DataOutputStream dos =
@@ -127,7 +114,7 @@ public class PeerClient {
         }
     }
 
-    public static void sendCallEnd(Peer peer) {
+    public void sendCallEnd(Peer peer) {
         try (Socket socket =
                      new Socket(peer.getAddress(), peer.getServicePort());
              DataOutputStream dos =
@@ -141,11 +128,9 @@ public class PeerClient {
         }
     }
 
-
     /* ================= FILE ================= */
 
-    public static void sendFile(Peer peer, File file) {
-        if (keyManager == null) return;
+    public void sendFile(Peer peer, File file) {
         FileSender.sendFile(peer, file, keyManager);
     }
 }
