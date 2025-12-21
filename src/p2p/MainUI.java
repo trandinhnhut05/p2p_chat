@@ -410,7 +410,9 @@ public class MainUI extends Application
     }
     void startCallFromRemote(Peer peer) {
         if (inCall) return;
+
         try {
+
             String callKey = peer.getCallKey(); // ✅ NHẬN TỪ NETWORK
 
 

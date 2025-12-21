@@ -91,8 +91,10 @@ public class PeerClient {
                                 int videoPort,
                                 int audioPort) {
 
-        String callKey = "CALL-" + localPeerId; // ✅ KHAI BÁO ĐẦU TIÊN
+        String callKey =
+                "CALL-" + localPeerId + "-" + java.util.UUID.randomUUID();
         peer.setCallKey(callKey);
+
 
 
         try {
