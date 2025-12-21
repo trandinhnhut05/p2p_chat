@@ -10,10 +10,12 @@ import java.net.Socket;
 public class PeerClient {
 
     private final KeyManager keyManager;
+    private final String localPeerId;
 
     // 🔥 Inject KeyManager qua constructor
-    public PeerClient(KeyManager keyManager) {
+    public PeerClient(KeyManager keyManager, String localPeerId) {
         this.keyManager = keyManager;
+        this.localPeerId = localPeerId;
     }
 
     /* ================= MESSAGE ================= */
@@ -61,7 +63,9 @@ public class PeerClient {
                                 int videoPort,
                                 int audioPort) {
 
-        String callKey = "CALL-" + peer.getId();
+        String callKey = "CALL-" + localPeerId; // ✅ KHAI BÁO ĐẦU TIÊN
+        peer.setCallKey(callKey);
+
 
         try {
             if (!keyManager.hasKey(callKey)) {
@@ -96,6 +100,7 @@ public class PeerClient {
         }
     }
 
+
     public void sendCallAccept(Peer peer,
                                int videoPort,
                                int audioPort) {
@@ -105,8 +110,10 @@ public class PeerClient {
                      new DataOutputStream(socket.getOutputStream())) {
 
             dos.writeUTF("CALL_ACCEPT");
+            dos.writeUTF(peer.getCallKey());
             dos.writeInt(videoPort);
             dos.writeInt(audioPort);
+
             dos.flush();
 
         } catch (Exception e) {

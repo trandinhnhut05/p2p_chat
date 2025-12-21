@@ -81,7 +81,8 @@ public class MainUI extends Application
     public void start(Stage stage) throws Exception {
         localIP = InetAddress.getLocalHost().getHostAddress();
         keyManager = new KeyManager();
-        peerClient = new PeerClient(keyManager);
+        peerClient = new PeerClient(keyManager, localIP);
+
         settingsStore = new SettingsStore();
         localVideoPort = servicePort + 100;
         localAudioPort = servicePort + 200;

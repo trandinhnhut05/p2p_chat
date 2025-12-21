@@ -11,10 +11,10 @@ import java.util.Objects;
 public class Peer {
 
     private final InetAddress address;
-    private final int servicePort;
-    private final String username;
+    private int servicePort;
+    private String username;
     private final String fingerprint;
-
+    private String callKey;
     private long lastSeen;
     private String lastMessage = "";
 
@@ -50,6 +50,21 @@ public class Peer {
     public String getUsername() {
         return username;
     }
+    public void setServicePort(int servicePort) {
+        this.servicePort = servicePort;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+    public String getCallKey() {
+        return callKey;
+    }
+
+    public void setCallKey(String callKey) {
+        this.callKey = callKey;
+    }
+
 
     public void setLastSeen(long lastSeen) {
         this.lastSeen = lastSeen;

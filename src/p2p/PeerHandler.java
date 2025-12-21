@@ -54,32 +54,44 @@ public class PeerHandler implements Runnable {
 
                     System.out.println("🔐 Session key stored from " + peerId);
                 }
+                case "HELLO" -> {
+                    String username = dis.readUTF();
+                    int servicePort = dis.readInt();
+
+                    peer.setUsername(username);
+                    peer.setServicePort(servicePort);
+
+                    System.out.println("👋 HELLO from " + username + ":" + servicePort);
+                }
+
 
                 /* ========== CALL REQUEST ========== */
                 case "CALL_REQUEST" -> {
+                    String callKey = dis.readUTF();
                     int videoPort = dis.readInt();
                     int audioPort = dis.readInt();
 
+                    peer.setCallKey(callKey);
                     peer.setVideoPort(videoPort);
                     peer.setAudioPort(audioPort);
 
-                    Platform.runLater(() ->
-                            mainUI.onIncomingCall(peer)
-                    );
+                    Platform.runLater(() -> mainUI.onIncomingCall(peer));
                 }
+
 
                 /* ========== CALL ACCEPT ========== */
                 case "CALL_ACCEPT" -> {
+                    String callKey = dis.readUTF();
                     int videoPort = dis.readInt();
                     int audioPort = dis.readInt();
 
+                    peer.setCallKey(callKey);
                     peer.setVideoPort(videoPort);
                     peer.setAudioPort(audioPort);
 
-                    Platform.runLater(() ->
-                            mainUI.startCallFromRemote(peer)
-                    );
+                    Platform.runLater(() -> mainUI.startCallFromRemote(peer));
                 }
+
 
                 /* ========== CALL END ========== */
                 case "CALL_END" -> {
