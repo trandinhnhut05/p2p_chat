@@ -340,7 +340,7 @@ public class MainUI extends Application
 
         Peer peer = new Peer(
                 socket.getInetAddress(),
-                socket.getPort(),
+                -1,  // 🔥 CHƯA BIẾT servicePort, sẽ nhận qua HELLO
                 "Unknown",
                 socket.getInetAddress().getHostAddress()
         );
@@ -353,6 +353,7 @@ public class MainUI extends Application
                 this
         )).start();
     }
+
 
 
     /* ================= UTILS ================= */
