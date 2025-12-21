@@ -2,10 +2,14 @@ package p2p;
 
 import p2p.crypto.KeyManager;
 
+import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
+import javax.crypto.spec.IvParameterSpec;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 
 public class PeerClient {
 
@@ -34,16 +38,14 @@ public class PeerClient {
 
     public void sendMessage(Peer peer, String message) {
         try {
+            // 1️⃣ ĐẢM BẢO ĐÃ CÓ SESSION KEY
             if (!keyManager.hasKey(peer.getId())) {
-                SecretKey key = keyManager.createSessionKey(peer.getId());
+                SecretKey key = keyManager.getOrCreate(peer.getId());
 
-                try (Socket s =
-                             new Socket(peer.getAddress(), peer.getServicePort());
-                     DataOutputStream dos =
-                             new DataOutputStream(s.getOutputStream())) {
+                try (Socket s = new Socket(peer.getAddress(), peer.getServicePort());
+                     DataOutputStream dos = new DataOutputStream(s.getOutputStream())) {
 
                     sendHello(dos);
-
                     dos.writeUTF("SESSION_KEY");
                     dos.writeUTF(peer.getId());
                     dos.write(key.getEncoded());
@@ -51,29 +53,37 @@ public class PeerClient {
                 }
             }
 
-            try (Socket socket =
-                         new Socket(peer.getAddress(), peer.getServicePort());
-                 DataOutputStream dos =
-                         new DataOutputStream(socket.getOutputStream())) {
+            // 2️⃣ GỬI MESSAGE
+            try (Socket socket = new Socket(peer.getAddress(), peer.getServicePort());
+                 DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
 
-                // ✅ GỬI HELLO ĐẦU TIÊN
                 sendHello(dos);
-
                 dos.writeUTF("MSG");
 
-                byte[] encrypted =
-                        keyManager.encrypt(peer.getId(), message.getBytes());
+                // 🔐 ENCRYPT
+                byte[] ivBytes = new byte[16];
+                new SecureRandom().nextBytes(ivBytes);
+                IvParameterSpec iv = new IvParameterSpec(ivBytes);
+
+                Cipher cipher = keyManager.createEncryptCipher(peer.getId(), iv);
+                byte[] encrypted = cipher.doFinal(message.getBytes(StandardCharsets.UTF_8));
+
+                // 📦 SEND
+                dos.writeInt(ivBytes.length);
+                dos.write(ivBytes);
 
                 dos.writeInt(encrypted.length);
                 dos.write(encrypted);
+
                 dos.flush();
             }
-
 
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
+
+
 
     /* ================= CALL ================= */
 
@@ -87,19 +97,21 @@ public class PeerClient {
 
         try {
             if (!keyManager.hasKey(callKey)) {
-                SecretKey key = keyManager.createSessionKey(callKey);
+                SecretKey key = keyManager.getOrCreate(callKey); // ✅ ĐÚNG
 
                 try (Socket s =
                              new Socket(peer.getAddress(), peer.getServicePort());
                      DataOutputStream dos =
                              new DataOutputStream(s.getOutputStream())) {
 
+                    sendHello(dos);                 // ✅ NÊN CÓ
                     dos.writeUTF("SESSION_KEY");
                     dos.writeUTF(callKey);
                     dos.write(key.getEncoded());
                     dos.flush();
                 }
             }
+
 
             try (Socket socket =
                          new Socket(peer.getAddress(), peer.getServicePort());
@@ -160,8 +172,10 @@ public class PeerClient {
              DataOutputStream dos =
                      new DataOutputStream(socket.getOutputStream())) {
 
+            sendHello(dos);
             dos.writeUTF("CALL_END");
             dos.flush();
+
 
         } catch (Exception e) {
             e.printStackTrace();

@@ -40,75 +40,83 @@ public class PeerHandler implements Runnable {
     public void run() {
         try (DataInputStream dis = new DataInputStream(socket.getInputStream())) {
 
-            String type = dis.readUTF();
+            /* ===== HELLO (BẮT BUỘC) ===== */
+            String hello = dis.readUTF();
+            if (!"HELLO".equals(hello)) {
+                socket.close();
+                return;
+            }
 
-            switch (type) {
+            peer.setUsername(dis.readUTF());
+            peer.setServicePort(dis.readInt());
 
-                /* ========== SESSION KEY ========== */
-                case "SESSION_KEY" -> {
-                    String peerId = dis.readUTF();
-                    byte[] keyBytes = new byte[16];
-                    dis.readFully(keyBytes);
+            System.out.println("👋 HELLO from " + peer.getUsername()
+                    + " servicePort=" + peer.getServicePort());
 
-                    keyManager.storeSessionKey(peerId, keyBytes);
+            /* ===== READ MULTIPLE MESSAGES ===== */
+            while (true) {
 
-                    System.out.println("🔐 Session key stored from " + peerId);
+                String type = dis.readUTF();
+
+                switch (type) {
+
+                    case "SESSION_KEY" -> {
+                        String keyId = dis.readUTF();
+                        byte[] keyBytes = new byte[16];
+                        dis.readFully(keyBytes);
+                        keyManager.storeSessionKey(keyId, keyBytes);
+                    }
+
+                    case "MSG" -> handleMessage(dis);
+
+                    case "FILE" -> handleFile();
+
+                    case "CALL_REQUEST" -> handleCallRequest(dis);
+
+                    case "CALL_ACCEPT" -> handleCallAccept(dis);
+
+                    case "CALL_END" ->
+                            Platform.runLater(() ->
+                                    mainUI.stopCallFromRemote(peer)
+                            );
                 }
-                case "HELLO" -> {
-                    peer.setUsername(dis.readUTF());
-                    peer.setServicePort(dis.readInt());
-
-                    System.out.println("👋 HELLO from " + peer.getUsername()
-                            + " servicePort=" + peer.getServicePort());
-                }
-
-
-                /* ========== CALL REQUEST ========== */
-                case "CALL_REQUEST" -> {
-                    String callKey = dis.readUTF();
-                    int videoPort = dis.readInt();
-                    int audioPort = dis.readInt();
-
-                    peer.setCallKey(callKey);
-                    peer.setVideoPort(videoPort);
-                    peer.setAudioPort(audioPort);
-
-                    Platform.runLater(() -> mainUI.onIncomingCall(peer));
-                }
-
-
-                /* ========== CALL ACCEPT ========== */
-                case "CALL_ACCEPT" -> {
-                    String callKey = dis.readUTF();
-                    int videoPort = dis.readInt();
-                    int audioPort = dis.readInt();
-
-                    peer.setCallKey(callKey);
-                    peer.setVideoPort(videoPort);
-                    peer.setAudioPort(audioPort);
-
-                    Platform.runLater(() -> mainUI.startCallFromRemote(peer));
-                }
-
-
-                /* ========== CALL END ========== */
-                case "CALL_END" -> {
-                    Platform.runLater(() ->
-                            mainUI.stopCallFromRemote(peer)
-                    );
-                }
-
-                /* ========== MESSAGE ========== */
-                case "MSG" -> handleMessage(dis);
-
-                /* ========== FILE ========== */
-                case "FILE" -> handleFile();
             }
 
         } catch (Exception e) {
-            e.printStackTrace();
+            // socket đóng là bình thường
         }
     }
+    private void handleCallRequest(DataInputStream dis) throws Exception {
+        String callKey = dis.readUTF();
+
+        if (!keyManager.hasKey(callKey)) {
+            System.err.println("❌ Missing call key: " + callKey);
+            return;
+        }
+
+        peer.setCallKey(callKey);
+        peer.setVideoPort(dis.readInt());
+        peer.setAudioPort(dis.readInt());
+
+        Platform.runLater(() -> mainUI.onIncomingCall(peer));
+    }
+
+    private void handleCallAccept(DataInputStream dis) throws Exception {
+        String callKey = dis.readUTF();
+
+        if (!keyManager.hasKey(callKey)) {
+            System.err.println("❌ Missing call key: " + callKey);
+            return;
+        }
+
+        peer.setCallKey(callKey);
+        peer.setVideoPort(dis.readInt());
+        peer.setAudioPort(dis.readInt());
+
+        Platform.runLater(() -> mainUI.startCallFromRemote(peer));
+    }
+
+
 
 
 
@@ -117,11 +125,19 @@ public class PeerHandler implements Runnable {
 
     private void handleMessage(DataInputStream dis) throws Exception {
 
-        int length = dis.readInt();
-        byte[] encrypted = new byte[length];
+        int ivLen = dis.readInt();
+        byte[] iv = new byte[ivLen];
+        dis.readFully(iv);
+
+        int len = dis.readInt();
+        byte[] encrypted = new byte[len];
         dis.readFully(encrypted);
 
-        byte[] decrypted = keyManager.decrypt(peer.getId(), encrypted);
+        byte[] decrypted = keyManager.createDecryptCipher(
+                peer.getId(),
+                new javax.crypto.spec.IvParameterSpec(iv)
+        ).doFinal(encrypted);
+
         String msg = new String(decrypted, StandardCharsets.UTF_8);
 
         if (settings.isBlockedById(peer.getId())) return;
@@ -129,8 +145,11 @@ public class PeerHandler implements Runnable {
         peer.setLastMessage(msg);
         ChatWindow.appendToHistoryFileStatic(peer, peer.getUsername(), msg);
 
-        Platform.runLater(() -> mainUI.onIncomingMessage(peer, msg));
+        Platform.runLater(() ->
+                mainUI.onIncomingMessage(peer, msg)
+        );
     }
+
 
 
 

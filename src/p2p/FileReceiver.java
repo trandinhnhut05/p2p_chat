@@ -3,17 +3,17 @@ package p2p;
 import javafx.application.Platform;
 import p2p.crypto.KeyManager;
 
+import javax.crypto.Cipher;
+import javax.crypto.spec.IvParameterSpec;
 import java.io.*;
 import java.net.Socket;
 
 /**
  * FileReceiver
  * -------------
- * Nhận file từ peer qua TCP (AES decrypted bằng KeyManager)
+ * Nhận file qua TCP (AES-CBC)
  */
 public class FileReceiver implements Runnable {
-
-    private static final int BUFFER_SIZE = 8192;
 
     private final Socket socket;
     private final Peer peer;
@@ -30,31 +30,31 @@ public class FileReceiver implements Runnable {
         try (DataInputStream dis = new DataInputStream(socket.getInputStream())) {
 
             String fileName = dis.readUTF();
-            long fileSize = dis.readLong();
 
+            // ===== READ IV =====
+            int ivLen = dis.readInt();
+            byte[] ivBytes = new byte[ivLen];
+            dis.readFully(ivBytes);
+
+            // ===== READ DATA =====
+            int dataLen = dis.readInt();
+            byte[] encrypted = new byte[dataLen];
+            dis.readFully(encrypted);
+
+            // ===== DECRYPT =====
+            Cipher cipher = keyManager.createDecryptCipher(
+                    peer.getId(),
+                    new IvParameterSpec(ivBytes)
+            );
+            byte[] plain = cipher.doFinal(encrypted);
+
+            // ===== WRITE FILE =====
             File dir = new File(System.getProperty("user.home"), "Downloads/p2p-chat");
             if (!dir.exists()) dir.mkdirs();
 
             File outFile = new File(dir, fileName);
-
-            try (BufferedOutputStream bos =
-                         new BufferedOutputStream(new FileOutputStream(outFile))) {
-
-                byte[] buffer = new byte[BUFFER_SIZE];
-                long remaining = fileSize;
-
-                while (remaining > 0) {
-                    int toRead = (int) Math.min(buffer.length, remaining);
-                    int read = dis.read(buffer, 0, toRead);
-                    if (read == -1) break;
-
-                    // 🔐 GIẢI MÃ AES
-                    byte[] decrypted = keyManager.decrypt(peer.getId(), copyOf(buffer, read));
-
-                    bos.write(decrypted);
-                    remaining -= read;
-                }
-                bos.flush();
+            try (FileOutputStream fos = new FileOutputStream(outFile)) {
+                fos.write(plain);
             }
 
             Platform.runLater(() ->
@@ -64,11 +64,5 @@ public class FileReceiver implements Runnable {
         } catch (Exception e) {
             e.printStackTrace();
         }
-    }
-
-    private static byte[] copyOf(byte[] src, int len) {
-        byte[] out = new byte[len];
-        System.arraycopy(src, 0, out, 0, len);
-        return out;
     }
 }

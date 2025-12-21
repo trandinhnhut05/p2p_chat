@@ -1,42 +1,46 @@
 package p2p;
 
+import p2p.crypto.CryptoUtils;
 import p2p.crypto.KeyManager;
 
 import javax.crypto.Cipher;
-import javax.crypto.CipherOutputStream;
+import javax.crypto.spec.IvParameterSpec;
 import java.io.*;
 import java.net.Socket;
+import java.nio.file.Files;
 
 /**
  * FileSender
  * -----------
- * Gửi file tới peer qua TCP (AES encrypted)
+ * Gửi file qua TCP (AES-CBC)
  */
 public class FileSender {
-
-    private static final int BUFFER_SIZE = 8192;
 
     public static void sendFile(Peer peer, File file, KeyManager keyManager) {
         try (Socket socket = new Socket(peer.getAddress(), peer.getServicePort());
              DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
 
+            // ===== HEADER =====
             dos.writeUTF("FILE");
             dos.writeUTF(file.getName());
-            dos.writeLong(file.length());
+
+            // ===== READ FILE =====
+            byte[] fileBytes = Files.readAllBytes(file.toPath());
+
+            // ===== ENCRYPT =====
+            IvParameterSpec iv = CryptoUtils.generateIv();
+            Cipher cipher = keyManager.createEncryptCipher(peer.getId(), iv);
+            byte[] encrypted = cipher.doFinal(fileBytes);
+
+            // ===== SEND =====
+            dos.writeInt(iv.getIV().length);
+            dos.write(iv.getIV());
+
+            dos.writeInt(encrypted.length);
+            dos.write(encrypted);
             dos.flush();
 
-            Cipher cipher = keyManager.createAESCipher(Cipher.ENCRYPT_MODE, peer.getId());
-
-            try (CipherOutputStream cos = new CipherOutputStream(dos, cipher);
-                 BufferedInputStream bis = new BufferedInputStream(new FileInputStream(file))) {
-
-                byte[] buffer = new byte[BUFFER_SIZE];
-                int read;
-                while ((read = bis.read(buffer)) != -1) {
-                    cos.write(buffer, 0, read);
-                }
-                cos.flush();
-            }
+            System.out.println("Sent encrypted file: " + file.getName());
 
         } catch (Exception e) {
             e.printStackTrace();
