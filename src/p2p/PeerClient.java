@@ -5,6 +5,7 @@ import p2p.crypto.KeyManager;
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
+import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.net.Socket;
@@ -98,42 +99,78 @@ public class PeerClient {
 
 
         try {
+            // Gửi session key nếu chưa có
             if (!keyManager.hasKey(callKey)) {
-                SecretKey key = keyManager.getOrCreate(callKey); // ✅ ĐÚNG
+                SecretKey key = keyManager.getOrCreate(callKey);
 
-                try (Socket s =
-                             new Socket(peer.getAddress(), peer.getServicePort());
-                     DataOutputStream dos =
-                             new DataOutputStream(s.getOutputStream())) {
+                try (Socket s = new Socket(peer.getAddress(), peer.getServicePort());
+                     DataOutputStream dos = new DataOutputStream(s.getOutputStream())) {
 
-                    sendHello(dos);                 // ✅ NÊN CÓ
+                    sendHello(dos);
                     dos.writeUTF("SESSION_KEY");
                     dos.writeUTF(callKey);
                     dos.write(key.getEncoded());
                     dos.flush();
                 }
+
+                // 🔹 Đảm bảo key đã lưu trước khi gửi CALL_REQUEST
+                if (!keyManager.hasKey(callKey)) {
+                    System.err.println("❌ Failed to store call key");
+                    return;
+                }
             }
 
 
-            try (Socket socket =
-                         new Socket(peer.getAddress(), peer.getServicePort());
-                 DataOutputStream dos =
-                         new DataOutputStream(socket.getOutputStream())) {
 
-                sendHello(dos); // ✅ BẮT BUỘC
+            // Gửi CALL_REQUEST
+            try {
+                // 🔹 Đảm bảo peer bên kia có key trước khi gửi
+                ensureSessionKeyOnRemote(peer, peer.getCallKey());
 
-                dos.writeUTF("CALL_REQUEST");
-                dos.writeUTF(callKey);
-                dos.writeInt(videoPort);
-                dos.writeInt(audioPort);
-                dos.flush();
+                try (Socket socket = new Socket(peer.getAddress(), peer.getServicePort());
+                     DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
+
+                    sendHello(dos);
+                    dos.writeUTF("CALL_ACCEPT");
+                    dos.writeUTF(peer.getCallKey());
+                    dos.writeInt(videoPort);
+                    dos.writeInt(audioPort);
+                    dos.flush();
+                }
+
+            } catch (Exception e) {
+                e.printStackTrace();
             }
+
 
 
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
+    private void ensureSessionKeyOnRemote(Peer peer, String keyId) throws Exception {
+        if (keyManager.hasKey(keyId)) {
+            SecretKey key = keyManager.getOrCreate(keyId);
+
+            try (Socket s = new Socket(peer.getAddress(), peer.getServicePort());
+                 DataOutputStream dos = new DataOutputStream(s.getOutputStream());
+                 DataInputStream dis = new DataInputStream(s.getInputStream())) {
+
+                sendHello(dos);
+                dos.writeUTF("SESSION_KEY");
+                dos.writeUTF(keyId);
+                dos.write(key.getEncoded());
+                dos.flush();
+
+                // 🔹 chờ ACK
+                String ack = dis.readUTF();
+                if (!"SESSION_KEY_ACK".equals(ack)) {
+                    throw new Exception("❌ Peer did not ack session key");
+                }
+            }
+        }
+    }
+
 
 
     public void sendCallAccept(Peer peer,

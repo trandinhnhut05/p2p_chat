@@ -4,6 +4,7 @@ import javafx.application.Platform;
 import p2p.crypto.KeyManager;
 
 import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 
@@ -65,7 +66,13 @@ public class PeerHandler implements Runnable {
 
                     keyManager.storeSessionKey(keyId, keyBytes);
                     System.out.println("🔐 Session key stored: " + keyId);
+
+                    // 🔹 gửi ACK để peer biết đã nhận key
+                    DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
+                    dos.writeUTF("SESSION_KEY_ACK");
+                    dos.flush();
                 }
+
 
                 case "MSG" -> handleMessage(dis);
 
@@ -88,6 +95,11 @@ public class PeerHandler implements Runnable {
     private void handleCallRequest(DataInputStream dis) throws Exception {
         String callKey = dis.readUTF();
 
+        int retries = 5;
+        while (!keyManager.hasKey(callKey) && retries-- > 0) {
+            Thread.sleep(100);
+        }
+
         if (!keyManager.hasKey(callKey)) {
             System.err.println("❌ Missing call key: " + callKey);
             return;
@@ -99,6 +111,7 @@ public class PeerHandler implements Runnable {
 
         Platform.runLater(() -> mainUI.onIncomingCall(peer));
     }
+
 
     private void handleCallAccept(DataInputStream dis) throws Exception {
         String callKey = dis.readUTF();
