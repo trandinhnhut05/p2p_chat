@@ -21,15 +21,21 @@ public class PeerDiscoverySender extends Thread {
         setDaemon(true);
     }
 
+
     @Override
     public void run() {
-        try (DatagramSocket socket = new DatagramSocket()) {
+        try {
+            // ✅ BIND SOCKET VÀO CARD ĐANG DÙNG INTERNET
+            InetAddress local =
+                    InetAddress.getByName("0.0.0.0");
+
+            DatagramSocket socket =
+                    new DatagramSocket(new InetSocketAddress(local, 0));
 
             socket.setBroadcast(true);
 
-            // 🔥 DÙNG BROADCAST SUBNET THẬT
             InetAddress broadcast =
-                    InetAddress.getByName("192.168.1.255");
+                    InetAddress.getByName("255.255.255.255");
 
             while (running.get()) {
                 String msg =
@@ -54,6 +60,7 @@ public class PeerDiscoverySender extends Thread {
             if (running.get()) e.printStackTrace();
         }
     }
+
 
     public void shutdown() {
         running.set(false);

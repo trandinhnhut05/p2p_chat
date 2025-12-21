@@ -53,39 +53,38 @@ public class PeerHandler implements Runnable {
             System.out.println("👋 HELLO from " + peer.getUsername()
                     + " servicePort=" + peer.getServicePort());
 
-            /* ===== READ MULTIPLE MESSAGES ===== */
-            while (true) {
+            /* ===== REAL TYPE ===== */
+            String type = dis.readUTF();
 
-                String type = dis.readUTF();
+            switch (type) {
 
-                switch (type) {
+                case "SESSION_KEY" -> {
+                    String keyId = dis.readUTF();
+                    byte[] keyBytes = new byte[16];
+                    dis.readFully(keyBytes);
 
-                    case "SESSION_KEY" -> {
-                        String keyId = dis.readUTF();
-                        byte[] keyBytes = new byte[16];
-                        dis.readFully(keyBytes);
-                        keyManager.storeSessionKey(keyId, keyBytes);
-                    }
-
-                    case "MSG" -> handleMessage(dis);
-
-                    case "FILE" -> handleFile();
-
-                    case "CALL_REQUEST" -> handleCallRequest(dis);
-
-                    case "CALL_ACCEPT" -> handleCallAccept(dis);
-
-                    case "CALL_END" ->
-                            Platform.runLater(() ->
-                                    mainUI.stopCallFromRemote(peer)
-                            );
+                    keyManager.storeSessionKey(keyId, keyBytes);
+                    System.out.println("🔐 Session key stored: " + keyId);
                 }
+
+                case "MSG" -> handleMessage(dis);
+
+                case "CALL_REQUEST" -> handleCallRequest(dis);
+
+                case "CALL_ACCEPT" -> handleCallAccept(dis);
+
+                case "CALL_END" ->
+                        Platform.runLater(() ->
+                                mainUI.stopCallFromRemote(peer));
+
+                case "FILE" -> handleFile();
             }
 
         } catch (Exception e) {
-            // socket đóng là bình thường
+            e.printStackTrace();
         }
     }
+
     private void handleCallRequest(DataInputStream dis) throws Exception {
         String callKey = dis.readUTF();
 
