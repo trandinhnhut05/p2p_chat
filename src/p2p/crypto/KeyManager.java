@@ -31,16 +31,18 @@ public class KeyManager {
         return sessionKeys.get(keyId);
     }
 
-    public SecretKey getOrCreate(String keyId) throws Exception {
-        SecretKey key = sessionKeys.get(keyId);
-        if (key == null) {
-            KeyGenerator kg = KeyGenerator.getInstance(AES);
-            kg.init(128, new SecureRandom());
-            key = kg.generateKey();
-            sessionKeys.put(keyId, key);
-        }
-        return key;
+    public SecretKey getOrCreate(String keyId) {
+        return sessionKeys.computeIfAbsent(keyId, k -> {
+            try {
+                KeyGenerator kg = KeyGenerator.getInstance(AES);
+                kg.init(128, new SecureRandom());
+                return kg.generateKey();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
     }
+
 
     public void storeSessionKey(String keyId, byte[] rawKey) {
         sessionKeys.put(keyId, new SecretKeySpec(rawKey, AES));

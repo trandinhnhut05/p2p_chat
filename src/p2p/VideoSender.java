@@ -7,6 +7,8 @@ import org.opencv.videoio.VideoCapture;
 import p2p.crypto.CryptoUtils;
 import p2p.crypto.KeyManager;
 
+import org.opencv.videoio.Videoio;
+
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
 import java.net.DatagramPacket;
@@ -41,7 +43,8 @@ public class VideoSender extends Thread {
 
     @Override
     public void run() {
-        VideoCapture camera = new VideoCapture(0);
+        VideoCapture camera = new VideoCapture(0, Videoio.CAP_DSHOW);
+
         if (!camera.isOpened()) {
             System.err.println("❌ Cannot open camera");
             return;
@@ -54,10 +57,9 @@ public class VideoSender extends Thread {
                 camera.read(frame);
                 if (frame.empty()) continue;
 
-                // Resize frame
-                Imgproc.resize(frame, frame, new Size(FRAME_WIDTH, FRAME_HEIGHT));
+                Imgproc.resize(frame, frame,
+                        new Size(FRAME_WIDTH, FRAME_HEIGHT));
 
-                // Encode JPEG (giảm dung lượng)
                 MatOfByte buffer = new MatOfByte();
                 Imgcodecs.imencode(".jpg", frame, buffer);
                 byte[] rawFrame = buffer.toArray();

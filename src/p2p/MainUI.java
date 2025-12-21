@@ -411,7 +411,8 @@ public class MainUI extends Application
     void startCallFromRemote(Peer peer) {
         if (inCall) return;
         try {
-            String callKey = "CALL-" + peer.getId();
+            String callKey = peer.getCallKey(); // ✅ NHẬN TỪ NETWORK
+
 
             videoReceiver = new VideoReceiver(localVideoPort, keyManager, videoView, callKey);
             videoSender = new VideoSender(peer.getAddress(), peer.getVideoPort(), keyManager, callKey);
