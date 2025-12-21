@@ -1,126 +1,140 @@
-//package p2p;
-//
-//import p2p.crypto.KeyManager;
-//
-//import java.net.InetAddress;
-//
-///**
-// * Quản lý cuộc gọi Video / Voice (E2EE aware)
-// */
-//public class CallManager {
-//
-//    private final KeyManager keyManager;
-//
-//    private VideoSender videoSender;
-//    private VideoReceiver videoReceiver;
-//
-//    private VoiceSender voiceSender;
-//    private VoiceReceiver voiceReceiver;
-//
-//    public CallManager(KeyManager keyManager) {
-//        this.keyManager = keyManager;
-//    }
-//
-//    /* ===================== VIDEO ===================== */
-//
-//    public synchronized void startVideoCall(Peer peer,
-//                                            int localVideoPort,
-//                                            int remoteVideoPort,
-//                                            javafx.scene.image.ImageView imageView)
-//            throws Exception {
-//
-//        String peerId = peer.getIp() + ":" + peer.getPort();
-//
-//        // 🔐 đảm bảo đã có AES key
-//        if (keyManager.getSessionKey(peerId) == null) {
-//            System.out.println("🔐 Creating AES key before video call...");
-//            keyManager.createAndSendSessionKey(peerId);
-//        }
-//
-//        stopVideoCall();
-//
-//        videoReceiver = new VideoReceiver(localVideoPort, keyManager, imageView);
-//        videoSender = new VideoSender(
-//                InetAddress.getByName(peer.getIp()),
-//                remoteVideoPort,
-//                keyManager
-//        );
-//
-//        videoReceiver.start();
-//        videoSender.start();
-//
-//        System.out.println("📹 Video call started with " + peerId);
-//    }
-//
-//    public synchronized void stopVideoCall() {
-//        if (videoSender != null) {
-//            videoSender.stopSend();
-//            videoSender = null;
-//        }
-//        if (videoReceiver != null) {
-//            videoReceiver.stopReceive();
-//            videoReceiver = null;
-//        }
-//        System.out.println("📹 Video call stopped");
-//    }
-//
-//    /* ===================== VOICE ===================== */
-//
-//    public synchronized void startVoiceCall(Peer peer,
-//                                            int localVoicePort,
-//                                            int remoteVoicePort)
-//            throws Exception {
-//
-//        String peerId = peer.getIp() + ":" + peer.getPort();
-//
-//        if (keyManager.getSessionKey(peerId) == null) {
-//            System.out.println("🔐 Creating AES key before voice call...");
-//            keyManager.createAndSendSessionKey(peerId);
-//        }
-//
-//        stopVoiceCall();
-//
-//        voiceReceiver = new VoiceReceiver(localVoicePort, keyManager);
-//        voiceSender = new VoiceSender(
-//                InetAddress.getByName(peer.getIp()),
-//                remoteVoicePort,
-//                keyManager
-//        );
-//
-//        voiceReceiver.start();
-//        voiceSender.start();
-//
-//        System.out.println("🎤 Voice call started with " + peerId);
-//    }
-//
-//    public synchronized void stopVoiceCall() {
-//        if (voiceSender != null) {
-//            voiceSender.stopSend();
-//            voiceSender = null;
-//        }
-//        if (voiceReceiver != null) {
-//            voiceReceiver.stopReceive();
-//            voiceReceiver = null;
-//        }
-//        System.out.println("🎤 Voice call stopped");
-//    }
-//
-//    /* ===================== FULL CALL ===================== */
-//
-//    public synchronized void startFullCall(Peer peer,
-//                                           int localVideoPort,
-//                                           int remoteVideoPort,
-//                                           int localVoicePort,
-//                                           int remoteVoicePort,
-//                                           javafx.scene.image.ImageView imageView)
-//            throws Exception {
-//
-//        startVideoCall(peer, localVideoPort, remoteVideoPort, imageView);
-//        startVoiceCall(peer, localVoicePort, remoteVoicePort);
-//    }
-//
-//    public synchronized void stopAll() {
-//        stopVideoCall();
-//        stopVoiceCall();
-//    }
-//}
+package p2p;
+
+import javafx.application.Platform;
+import javafx.scene.image.ImageView;
+import p2p.crypto.KeyManager;
+
+import java.net.InetAddress;
+import java.util.HashMap;
+import java.util.Map;
+
+/**
+ * Quản lý các session call P2P video/audio
+ */
+public class CallManager {
+
+    private final KeyManager keyManager;
+    private final Map<String, CallSession> activeCalls = new HashMap<>();
+
+    public CallManager(KeyManager keyManager) {
+        this.keyManager = keyManager;
+    }
+
+    /**
+     * Tạo session outgoing call
+     */
+    public void createOutgoingCall(Peer remotePeer, String callId, int localVideoPort, int localAudioPort,
+                                   ImageView localVideoView) {
+        CallSession session = new CallSession(remotePeer, callId, localVideoPort, localAudioPort,
+                0, 0, keyManager, localVideoView);
+        activeCalls.put(callId, session);
+
+        session.startReceiving();
+    }
+
+    public void onIncomingCall(Peer fromPeer, String callId,
+                               int remoteVideoPort, int remoteAudioPort,
+                               ImageView remoteVideoView) {
+        int localVideoPort = fromPeer.getVideoPort();
+        int localAudioPort = fromPeer.getAudioPort();
+
+        CallSession session = new CallSession(fromPeer, callId,
+                localVideoPort, localAudioPort,
+                remoteVideoPort, remoteAudioPort,
+                keyManager, remoteVideoView);
+        activeCalls.put(callId, session);
+
+        session.startReceiving();
+        session.startSending();
+
+        fromPeer.sendCallAccept(fromPeer, callId, localVideoPort, localAudioPort);
+    }
+
+    public void onCallAccepted(Peer fromPeer, String callId,
+                               int remoteVideoPort, int remoteAudioPort) {
+        CallSession session = activeCalls.get(callId);
+        if (session != null) {
+            session.setRemotePorts(remoteVideoPort, remoteAudioPort);
+            session.startSending();
+            session.startReceiving();
+        }
+    }
+
+    public void endCall(String callId) {
+        CallSession session = activeCalls.remove(callId);
+        if (session != null) session.stop();
+    }
+
+    private static class CallSession {
+        private final Peer remotePeer;
+        private final String callId;
+        private final int localVideoPort;
+        private final int localAudioPort;
+        private int remoteVideoPort;
+        private int remoteAudioPort;
+        private final KeyManager keyManager;
+        private final ImageView videoView;
+
+        private VideoSender videoSender;
+        private VideoReceiver videoReceiver;
+        private VoiceSender voiceSender;
+        private VoiceReceiver voiceReceiver;
+
+        public CallSession(Peer remotePeer, String callId,
+                           int localVideoPort, int localAudioPort,
+                           int remoteVideoPort, int remoteAudioPort,
+                           KeyManager keyManager, ImageView videoView) {
+            this.remotePeer = remotePeer;
+            this.callId = callId;
+            this.localVideoPort = localVideoPort;
+            this.localAudioPort = localAudioPort;
+            this.remoteVideoPort = remoteVideoPort;
+            this.remoteAudioPort = remoteAudioPort;
+            this.keyManager = keyManager;
+            this.videoView = videoView;
+        }
+
+        public void setRemotePorts(int videoPort, int audioPort) {
+            this.remoteVideoPort = videoPort;
+            this.remoteAudioPort = audioPort;
+        }
+
+        public void startSending() {
+            try {
+                InetAddress target = remotePeer.getAddress();
+                if (videoSender == null && remoteVideoPort > 0) {
+                    videoSender = new VideoSender(target, remoteVideoPort, keyManager, callId);
+                    videoSender.start();
+                }
+                if (voiceSender == null && remoteAudioPort > 0) {
+                    voiceSender = new VoiceSender(target, remoteAudioPort, keyManager, callId);
+                    voiceSender.start();
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        public void startReceiving() {
+            try {
+                if (videoReceiver == null && localVideoPort > 0) {
+                    videoReceiver = new VideoReceiver(localVideoPort, keyManager, videoView, callId);
+                    videoReceiver.start();
+                }
+                if (voiceReceiver == null && localAudioPort > 0) {
+                    voiceReceiver = new VoiceReceiver(localAudioPort, keyManager, callId);
+                    voiceReceiver.start();
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        public void stop() {
+            if (videoSender != null) videoSender.stopSend();
+            if (voiceSender != null) voiceSender.stopSend();
+            if (videoReceiver != null) videoReceiver.stopReceive();
+            if (voiceReceiver != null) voiceReceiver.stopReceive();
+        }
+    }
+}

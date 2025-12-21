@@ -22,17 +22,20 @@ public class PeerHandler implements Runnable {
     private final KeyManager keyManager;
     private final SettingsStore settings;
     private final MainUI mainUI;
+    private final CallManager callManager;
+
 
     public PeerHandler(Socket socket,
                        Peer peer,
                        KeyManager keyManager,
                        SettingsStore settings,
-                       MainUI mainUI) {
+                       MainUI mainUI, CallManager callManager) {
         this.socket = socket;
         this.peer = peer;
         this.keyManager = keyManager;
         this.settings = settings;
         this.mainUI = mainUI;
+        this.callManager = callManager;
     }
 
 
@@ -106,11 +109,18 @@ public class PeerHandler implements Runnable {
         }
 
         peer.setCallKey(callKey);
-        peer.setVideoPort(dis.readInt());
-        peer.setAudioPort(dis.readInt());
 
-        Platform.runLater(() -> mainUI.onIncomingCall(peer));
+        int videoPort = dis.readInt();
+        int audioPort = dis.readInt();
+
+        peer.setVideoPort(videoPort);
+        peer.setAudioPort(audioPort);
+
+        Platform.runLater(() ->
+                mainUI.onIncomingCall(peer, callKey, videoPort, audioPort)
+        );
     }
+
 
 
     private void handleCallAccept(DataInputStream dis) throws Exception {
@@ -125,7 +135,10 @@ public class PeerHandler implements Runnable {
         peer.setVideoPort(dis.readInt());
         peer.setAudioPort(dis.readInt());
 
-        Platform.runLater(() -> mainUI.startCallFromRemote(peer));
+        Platform.runLater(() ->
+                mainUI.startCallFromRemote(peer, peer.getVideoPort(), peer.getAudioPort())
+        );
+
     }
 
 

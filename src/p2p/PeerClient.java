@@ -18,6 +18,14 @@ public class PeerClient {
     private final String localPeerId;
     private final int localServicePort;
     private final String localUsername;
+    private String currentCallId;
+    public String getCurrentCallId() {
+        return currentCallId;
+    }
+
+    public void setCurrentCallId(String callId) {
+        this.currentCallId = callId;
+    }
 
 
     // 🔥 Inject KeyManager qua constructor
@@ -89,14 +97,13 @@ public class PeerClient {
     /* ================= CALL ================= */
 
     public void sendCallRequest(Peer peer,
-                                int videoPort,
-                                int audioPort) {
+                                int localVideoPortSend,
+                                int localAudioPortSend,
+                                int localVideoPortRecv,
+                                int localAudioPortRecv,
+                                String callKey) { // <-- thêm tham số callKey
 
-        String callKey =
-                "CALL-" + localPeerId + "-" + java.util.UUID.randomUUID();
         peer.setCallKey(callKey);
-
-
 
         try {
             // Gửi session key nếu chưa có
@@ -113,42 +120,32 @@ public class PeerClient {
                     dos.flush();
                 }
 
-                // 🔹 Đảm bảo key đã lưu trước khi gửi CALL_REQUEST
                 if (!keyManager.hasKey(callKey)) {
                     System.err.println("❌ Failed to store call key");
                     return;
                 }
             }
 
+            // Gửi CALL_REQUEST với cả port gửi + port nhận
+            try (Socket socket = new Socket(peer.getAddress(), peer.getServicePort());
+                 DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
 
-
-            // Gửi CALL_REQUEST
-            // Gửi CALL_REQUEST
-            try {
-                ensureSessionKeyOnRemote(peer, peer.getCallKey());
-
-                try (Socket socket = new Socket(peer.getAddress(), peer.getServicePort());
-                     DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
-
-                    sendHello(dos);
-                    dos.writeUTF("CALL_ACCEPT"); // 🔴 LỖI: Gửi "CALL_ACCEPT" thay vì "CALL_REQUEST"
-                    dos.writeUTF(peer.getCallKey());
-                    dos.writeInt(videoPort);
-                    dos.writeInt(audioPort);
-                    dos.flush();
-                }
-
-            } catch (Exception e) {
-                e.printStackTrace();
+                sendHello(dos);
+                dos.writeUTF("CALL_REQUEST");
+                dos.writeUTF(callKey);
+                dos.writeInt(localVideoPortSend); // Video gửi
+                dos.writeInt(localAudioPortSend); // Audio gửi
+                dos.writeInt(localVideoPortRecv); // Video nhận
+                dos.writeInt(localAudioPortRecv); // Audio nhận
+                dos.flush();
             }
-
-
-
 
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
+
+
     private void ensureSessionKeyOnRemote(Peer peer, String keyId) throws Exception {
         if (keyManager.hasKey(keyId)) {
             SecretKey key = keyManager.getOrCreate(keyId);
