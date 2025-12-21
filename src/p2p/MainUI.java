@@ -229,7 +229,7 @@ public class MainUI extends Application
 
         // ✅ LISTENER – CHỈ START 1 LẦN
         discoveryListener =
-                new PeerDiscoveryListener(discoveryPort, servicePort);
+                new PeerDiscoveryListener( servicePort, discoveryPort);
         discoveryListener.start();
 
         // ✅ SENDER

@@ -64,7 +64,7 @@ public class PeerDiscoveryListener extends Thread {
             String username = parts[1];
             int port = Integer.parseInt(parts[2]);
             // 🔥 BỎ QUA CHÍNH MÌNH
-//            if (port == localServicePort) return;
+            if (port == localServicePort) return;
 
             String key = ip + ":" + port;
 
