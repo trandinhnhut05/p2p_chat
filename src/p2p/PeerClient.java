@@ -123,15 +123,15 @@ public class PeerClient {
 
 
             // Gửi CALL_REQUEST
+            // Gửi CALL_REQUEST
             try {
-                // 🔹 Đảm bảo peer bên kia có key trước khi gửi
                 ensureSessionKeyOnRemote(peer, peer.getCallKey());
 
                 try (Socket socket = new Socket(peer.getAddress(), peer.getServicePort());
                      DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
 
                     sendHello(dos);
-                    dos.writeUTF("CALL_ACCEPT");
+                    dos.writeUTF("CALL_ACCEPT"); // 🔴 LỖI: Gửi "CALL_ACCEPT" thay vì "CALL_REQUEST"
                     dos.writeUTF(peer.getCallKey());
                     dos.writeInt(videoPort);
                     dos.writeInt(audioPort);
@@ -141,6 +141,7 @@ public class PeerClient {
             } catch (Exception e) {
                 e.printStackTrace();
             }
+
 
 
 

@@ -427,6 +427,7 @@ public class MainUI extends Application
             voiceSender.start();
             voiceReceiver.start();
 
+
             inCall = true;
 
             Platform.runLater(() -> {
