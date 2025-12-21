@@ -2,6 +2,7 @@ package p2p;
 
 import java.net.*;
 import java.nio.charset.StandardCharsets;
+import java.util.Enumeration;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class PeerDiscoverySender extends Thread {
@@ -24,44 +25,52 @@ public class PeerDiscoverySender extends Thread {
 
     @Override
     public void run() {
+        DatagramSocket socket = null;
         try {
-            // ✅ BIND SOCKET VÀO CARD ĐANG DÙNG INTERNET
-            InetAddress local =
-                    InetAddress.getByName("0.0.0.0");
-
-            DatagramSocket socket =
-                    new DatagramSocket(new InetSocketAddress(local, 0));
-
+            socket = new DatagramSocket();
             socket.setBroadcast(true);
 
-            InetAddress broadcast =
-                    InetAddress.getByName("255.255.255.255");
-
-
-
             while (running.get()) {
-                String msg =
-                        "DISCOVER|" + username + "|" + servicePort;
 
-                byte[] data =
-                        msg.getBytes(StandardCharsets.UTF_8);
+                String msg = "DISCOVER|" + username + "|" + servicePort;
+                byte[] data = msg.getBytes(StandardCharsets.UTF_8);
 
-                DatagramPacket packet =
-                        new DatagramPacket(
-                                data,
-                                data.length,
-                                broadcast,
-                                discoveryPort
-                        );
+                Enumeration<NetworkInterface> interfaces =
+                        NetworkInterface.getNetworkInterfaces();
 
-                socket.send(packet);
+                while (interfaces.hasMoreElements()) {
+                    NetworkInterface ni = interfaces.nextElement();
+
+                    if (!ni.isUp() || ni.isLoopback()) continue;
+
+                    for (InterfaceAddress ia : ni.getInterfaceAddresses()) {
+                        InetAddress broadcast = ia.getBroadcast();
+                        if (broadcast == null) continue;
+
+                        DatagramPacket packet =
+                                new DatagramPacket(
+                                        data,
+                                        data.length,
+                                        broadcast,
+                                        discoveryPort
+                                );
+
+                        socket.send(packet);
+                    }
+                }
+
                 Thread.sleep(2000);
             }
 
         } catch (Exception e) {
             if (running.get()) e.printStackTrace();
+        }finally {
+            if (socket != null && !socket.isClosed()) {
+                socket.close();
+            }
         }
     }
+
 
 
     public void shutdown() {
