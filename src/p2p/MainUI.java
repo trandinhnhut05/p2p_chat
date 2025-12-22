@@ -354,8 +354,10 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         new Thread(() -> peerClient.sendCallRequest(peer, localVideoPort, localAudioPort, currentCallKey)).start();
 
 
+        inCall = true;
         btnVideoCall.setDisable(true);
         btnEndVideo.setDisable(false);
+
     }
 
     // Khi nhận CALL_REQUEST từ peer
@@ -380,7 +382,12 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
             alert.showAndWait().ifPresent(btn -> {
                 if (btn == accept) {
 
-                    // 1️⃣ Tạo session nhận video từ caller
+                    Platform.runLater(() -> {
+                        videoViewRemote.setVisible(true);
+                        videoViewRemote.setImage(null);
+                    });
+
+                    // 1️⃣ Tạo session + START RECEIVER NGAY
                     callManager.onIncomingCall(
                             peer,
                             callKey,
@@ -389,42 +396,52 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
                             videoViewRemote
                     );
 
-                    // 2️⃣ Gửi CALL_ACCEPT cho caller với port mình nhận
-                    new Thread(() -> peerClient.sendCallAccept(
-                            peer,
-                            localVideoPort,
-                            localAudioPort,
-                            callKey
-                    )).start();
+                    // 🟢 Delay nhỏ để đảm bảo socket bind xong
+                    Executors.newSingleThreadScheduledExecutor().schedule(() -> {
+                        peerClient.sendCallAccept(
+                                peer,
+                                localVideoPort,
+                                localAudioPort,
+                                callKey
+                        );
+                    }, 50, TimeUnit.MILLISECONDS);
 
                     inCall = true;
                     btnVideoCall.setDisable(true);
                     btnEndVideo.setDisable(false);
-                } else peerClient.sendCallEnd(peer);
+                }
+                else peerClient.sendCallEnd(peer);
             });
         });
     }
 
     // Khi peer chấp nhận call của mình
-    public void onCallAccepted(Peer peer, int calleeVideoPort, int calleeAudioPort, String callKey) {
+    public void onCallAccepted(Peer peer,
+                               int calleeVideoPort,
+                               int calleeAudioPort,
+                               String callKey) {
 
-        if (inCall || peer != currentCallPeer || !callKey.equals(currentCallKey)) return;
-        inCall = true;
+        if (peer != currentCallPeer || !callKey.equals(currentCallKey)) {
+            System.out.println("❌ onCallAccepted ignored (mismatch)");
+            return;
+        }
 
-        // Cập nhật session gửi/nhận video
+        inCall = true; // ✅ set SAU khi check
+
         callManager.onCallAccepted(
-                peer,              // Peer
-                currentCallKey,    // callId
-                calleeVideoPort,   // remoteVideoPort
-                calleeAudioPort,   // remoteAudioPort
-                localVideoPort,    // localVideoPort
-                localAudioPort,    // localAudioPort
-                videoViewLocal,    // local preview
-                videoViewRemote    // remote view
+                peer,
+                currentCallKey,
+                calleeVideoPort,
+                calleeAudioPort,
+                localVideoPort,
+                localAudioPort,
+                videoViewLocal,
+                videoViewRemote
         );
 
         System.out.println("📞 Call started with " + peer.getUsername());
     }
+
 
     // Khi kết thúc call
     public void stopCall() {
