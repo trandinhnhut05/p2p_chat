@@ -169,12 +169,30 @@ public class CallManager {
         }
 
         public void startSending() {
+            System.out.println(
+                    "DEBUG startSending: " +
+                            "remoteVideoPort=" + remoteVideoPort +
+                            ", localPreview=" + (localPreview != null) +
+                            ", videoEnabled=" + videoEnabled
+            );
+
             try {
                 InetAddress target = remotePeer.getAddress();
+
                 if (videoSender == null && remoteVideoPort > 0 && localPreview != null && videoEnabled) {
-                    videoSender = new VideoSender(target, remoteVideoPort, keyManager, callId, localPreview);
+                    System.out.println("🎥 Creating VideoSender...");
+                    videoSender = new VideoSender(
+                            target,
+                            remoteVideoPort,
+                            keyManager,
+                            callId,
+                            localPreview
+                    );
                     videoSender.start();
+                } else {
+                    System.out.println("❌ VideoSender NOT started");
                 }
+
                 if (voiceSender == null && remoteAudioPort > 0) {
                     voiceSender = new VoiceSender(target, remoteAudioPort, keyManager, callId);
                     voiceSender.setEnabled(micEnabled);
@@ -184,6 +202,7 @@ public class CallManager {
                 e.printStackTrace();
             }
         }
+
 
         public void startReceiving() {
 
