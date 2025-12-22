@@ -44,6 +44,8 @@ public class CallManager {
 
         activeCalls.put(callId, session);
 
+// 🔥 F
+
     }
 
     // Khi nhận cuộc gọi đến (incoming)
@@ -65,6 +67,8 @@ public class CallManager {
         );
 
         activeCalls.put(callId, session);
+        // 🔥 Cần startReceiving ngay khi nhận cuộc gọi
+        session.startReceiving();
 
     }
 
