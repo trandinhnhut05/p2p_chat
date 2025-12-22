@@ -421,7 +421,7 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
 
         // Tạo VideoReceiver/VoiceReceiver ở local nếu chưa tạo
         if (videoReceiver == null) {
-            videoReceiver = new VideoReceiver(localVideoPort, keyManager, videoViewLocal, callKey);
+            videoReceiver = new VideoReceiver(localVideoPort, keyManager, videoViewRemote, callKey);
             videoReceiver.start();
         }
         if (voiceReceiver == null) {
@@ -542,7 +542,7 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         voiceSender = new VoiceSender(peer.getAddress(), remoteAudioPort, keyManager, currentCallKey);
         voiceSender.start();
 
-        videoSender = new VideoSender(peer.getAddress(), remoteVideoPort, keyManager, currentCallKey, videoViewRemote);
+        videoSender = new VideoSender(peer.getAddress(), remoteVideoPort, keyManager, currentCallKey, videoViewLocal);
         videoSender.start();
     }
 

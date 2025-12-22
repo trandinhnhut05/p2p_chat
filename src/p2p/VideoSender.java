@@ -69,8 +69,10 @@ public class VideoSender extends Thread {
 
                 MatOfByte buf = new MatOfByte();
                 Imgcodecs.imencode(".jpg", frame, buf);
-                byte[] encrypted = CryptoUtils.encryptAES(buf.toArray(), key, CryptoUtils.generateIv());
-                byte[] iv = CryptoUtils.generateIv().getIV();
+                IvParameterSpec ivSpec = CryptoUtils.generateIv();
+                byte[] encrypted = CryptoUtils.encryptAES(buf.toArray(), key, ivSpec);
+                byte[] iv = ivSpec.getIV();
+
 
                 byte[] payload = new byte[iv.length + encrypted.length];
                 System.arraycopy(iv, 0, payload, 0, iv.length);
