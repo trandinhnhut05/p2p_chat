@@ -19,13 +19,10 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class VideoReceiver extends Thread {
 
-    /* ================= CONFIG ================= */
-
+    // ===== Tunables =====
     private static final int MAX_PACKET_SIZE = 1500;
-    private static final int FRAME_TIMEOUT_MS = 800;
-    private static final int MAX_INFLIGHT_FRAMES = 50;
-
-    /* ================= STATE ================= */
+    private static final int FRAME_TIMEOUT_MS = 300; // drop frame quá trễ
+    private static final int MAX_BUFFERED_FRAMES = 5;
 
     private final int port;
     private final KeyManager keyManager;
@@ -35,30 +32,32 @@ public class VideoReceiver extends Thread {
     private volatile boolean running = true;
     private DatagramSocket socket;
 
-    /* ================= FRAME BUFFER ================= */
-
+    // ===== Frame buffer =====
     private static class FrameBuffer {
         byte[][] chunks;
         int received;
         int expected;
-        long lastUpdate;
+        long firstSeen;
     }
 
-    private final Map<Integer, FrameBuffer> frames = new ConcurrentHashMap<>();
+    // frameId -> FrameBuffer
+    private final Map<Integer, FrameBuffer> frameMap = new ConcurrentHashMap<>();
 
-    /* ================= CONSTRUCTOR ================= */
+    // để bỏ frame cũ (anti-lag)
+    private volatile int latestFrameId = -1;
 
-    public VideoReceiver(int port, KeyManager keyManager, ImageView imageView, String callKey) {
+    public VideoReceiver(int port,
+                         KeyManager keyManager,
+                         ImageView imageView,
+                         String callKey) {
+
         this.port = port;
         this.keyManager = keyManager;
         this.imageView = imageView;
         this.callKey = callKey;
-        setName("VideoReceiver-" + port);
-        setDaemon(true);
     }
 
-    /* ================= THREAD ================= */
-
+    // ================= THREAD =================
     @Override
     public void run() {
 
@@ -69,6 +68,7 @@ public class VideoReceiver extends Thread {
 
         try {
             socket = new DatagramSocket(port);
+            socket.setReceiveBufferSize(1 << 20); // 1MB buffer
             System.out.println("🎥 VideoReceiver listening on port " + port);
 
             byte[] buf = new byte[MAX_PACKET_SIZE];
@@ -79,56 +79,69 @@ public class VideoReceiver extends Thread {
                 socket.receive(pkt);
 
                 byte[] data = Arrays.copyOf(pkt.getData(), pkt.getLength());
+
                 if (data.length < 6) continue;
 
-                /* -------- HEADER -------- */
+                // ===== Parse header =====
                 int frameId = ((data[0] & 0xFF) << 8) | (data[1] & 0xFF);
                 int index   = data[2] & 0xFF;
                 int total   = data[3] & 0xFF;
                 int len     = ((data[4] & 0xFF) << 8) | (data[5] & 0xFF);
 
-                if (total <= 0 || index >= total) continue;
+                if (index >= total || data.length < 6 + len) continue;
 
-                /* -------- FRAME BUFFER -------- */
-                FrameBuffer fb = frames.computeIfAbsent(frameId, id -> {
+                // ===== Anti-lag: drop frame cũ =====
+                if (latestFrameId != -1) {
+                    int diff = (frameId - latestFrameId) & 0xFFFF;
+                    if (diff > 30000) continue; // frame quá cũ
+                }
+
+                latestFrameId = frameId;
+
+                // ===== Limit buffer =====
+                if (frameMap.size() > MAX_BUFFERED_FRAMES) {
+                    dropOldestFrame();
+                }
+
+                // ===== Buffer frame =====
+                FrameBuffer fb = frameMap.computeIfAbsent(frameId, k -> {
                     FrameBuffer f = new FrameBuffer();
                     f.chunks = new byte[total][];
                     f.expected = total;
-                    f.received = 0;
-                    f.lastUpdate = System.currentTimeMillis();
+                    f.firstSeen = System.currentTimeMillis();
                     return f;
                 });
 
                 if (fb.chunks[index] == null) {
                     fb.chunks[index] = Arrays.copyOfRange(data, 6, 6 + len);
                     fb.received++;
-                    fb.lastUpdate = System.currentTimeMillis();
                 }
 
-                /* -------- COMPLETE FRAME -------- */
+                // ===== Frame complete =====
                 if (fb.received == fb.expected) {
-                    frames.remove(frameId);
-                    processFrame(fb);
+                    frameMap.remove(frameId);
+                    handleCompleteFrame(fb);
                 }
 
-                cleanupOldFrames();
+                cleanupTimeoutFrames();
             }
 
         } catch (Exception e) {
             if (running) e.printStackTrace();
         } finally {
-            closeSocket();
+            if (socket != null && !socket.isClosed()) socket.close();
+            System.out.println("🎥 VideoReceiver stopped");
         }
     }
 
-    /* ================= FRAME PROCESS ================= */
-
-    private void processFrame(FrameBuffer fb) {
+    // ================= FRAME PROCESS =================
+    private void handleCompleteFrame(FrameBuffer fb) {
 
         try {
-            int size = Arrays.stream(fb.chunks).mapToInt(b -> b.length).sum();
-            byte[] full = new byte[size];
+            int size = 0;
+            for (byte[] c : fb.chunks) size += c.length;
 
+            byte[] full = new byte[size];
             int pos = 0;
             for (byte[] c : fb.chunks) {
                 System.arraycopy(c, 0, full, pos, c.length);
@@ -136,13 +149,24 @@ public class VideoReceiver extends Thread {
             }
 
             if (!keyManager.hasKey(callKey)) return;
+
             SecretKey key = keyManager.getOrCreate(callKey);
+
+            if (full.length < 16) return;
 
             byte[] iv  = Arrays.copyOfRange(full, 0, 16);
             byte[] enc = Arrays.copyOfRange(full, 16, full.length);
 
-            byte[] raw = CryptoUtils.decryptAES(enc, key, new IvParameterSpec(iv));
-            Mat img = Imgcodecs.imdecode(new MatOfByte(raw), Imgcodecs.IMREAD_COLOR);
+            byte[] raw = CryptoUtils.decryptAES(
+                    enc,
+                    key,
+                    new IvParameterSpec(iv)
+            );
+
+            Mat img = Imgcodecs.imdecode(
+                    new MatOfByte(raw),
+                    Imgcodecs.IMREAD_COLOR
+            );
 
             if (img.empty()) return;
 
@@ -150,43 +174,37 @@ public class VideoReceiver extends Thread {
             Platform.runLater(() -> imageView.setImage(fx));
 
         } catch (Exception ignored) {
-            // Drop corrupted frame silently
+            // production: drop frame silently
         }
     }
 
-    /* ================= CLEANUP ================= */
-
-    private void cleanupOldFrames() {
+    // ================= CLEANUP =================
+    private void cleanupTimeoutFrames() {
         long now = System.currentTimeMillis();
-
-        frames.entrySet().removeIf(e ->
-                now - e.getValue().lastUpdate > FRAME_TIMEOUT_MS
+        frameMap.entrySet().removeIf(
+                e -> now - e.getValue().firstSeen > FRAME_TIMEOUT_MS
         );
-
-        if (frames.size() > MAX_INFLIGHT_FRAMES) {
-            frames.clear(); // panic cleanup
-        }
     }
 
-    /* ================= STOP ================= */
+    private void dropOldestFrame() {
+        frameMap.entrySet().stream()
+                .min((a, b) -> Long.compare(
+                        a.getValue().firstSeen,
+                        b.getValue().firstSeen))
+                .ifPresent(e -> frameMap.remove(e.getKey()));
+    }
 
+    // ================= CONTROL =================
     public void stopReceive() {
         running = false;
-        closeSocket();
+        if (socket != null) socket.close();
         Platform.runLater(() -> imageView.setImage(null));
     }
 
-    private void closeSocket() {
-        if (socket != null && !socket.isClosed()) {
-            socket.close();
-        }
-    }
-
-    /* ================= UTIL ================= */
-
+    // ================= UTILS =================
     private Image matToImage(Mat mat) {
         MatOfByte buf = new MatOfByte();
-        Imgcodecs.imencode(".jpg", mat, buf);
+        Imgcodecs.imencode(".png", mat, buf);
         return new Image(new ByteArrayInputStream(buf.toArray()));
     }
 }
