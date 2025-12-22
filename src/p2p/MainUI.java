@@ -19,6 +19,7 @@ import javax.crypto.SecretKey;
 import java.io.File;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.List;
 import java.util.Map;
@@ -197,59 +198,80 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
 
     /* ================= NETWORK ================= */
     private void startNetwork() {
-        String localPeerId = username + "@" + localIP + ":" + servicePort;
-
-        // Kiểm tra TCP port có sẵn không
-        try (DatagramSocket ds = new DatagramSocket(servicePort)) {
-            ds.close(); // chỉ check
-        } catch (Exception e) {
-            alert("Port " + servicePort + " đang được sử dụng! Chọn port khác.");
-            return;
-        }
-
-        peerClient = new PeerClient(keyManager, localPeerId, servicePort, username);
-        callManager.setPeerClient(peerClient);
-        // Listener UDP để nhận peer discovery
-        discoveryListener = new PeerDiscoveryListener(servicePort, discoveryPort) {
-            @Override
-            public List<Peer> snapshot() {
-                List<Peer> peers = super.snapshot();
-
-                // Lọc trùng đúng cả username + port để test 1 máy nhiều instance
-                boolean hasConflict = peers.stream()
-                        .anyMatch(p -> p.getUsername().equals(username) && p.getServicePort() == servicePort);
-
-                if (hasConflict) {
-                    Platform.runLater(() -> alert("⚠️ Phát hiện trùng username và port trong mạng!"));
+        try {
+            // Tìm port TCP trống
+            while (true) {
+                try (ServerSocket ss = new ServerSocket(servicePort)) {
+                    ss.close();
+                    break;
+                } catch (Exception e) {
+                    System.out.println("⚠️ TCP port " + servicePort + " đang được sử dụng, tăng +1");
+                    servicePort++;
                 }
-
-                peers.removeIf(p -> p.getUsername().equals(username) && p.getServicePort() == servicePort);
-
-                return peers;
             }
-        };
-        discoveryListener.start();
 
-        // Sender UDP
-        discoverySender = new PeerDiscoverySender(username, servicePort, discoveryPort);
-        discoverySender.start();
+            // Tìm port UDP trống
+            while (true) {
+                try (DatagramSocket ds = new DatagramSocket(discoveryPort)) {
+                    ds.close();
+                    break;
+                } catch (Exception e) {
+                    System.out.println("⚠️ UDP port " + discoveryPort + " đang được sử dụng, tăng +1");
+                    discoveryPort++;
+                }
+            }
 
-        // Server TCP
-        peerServer = new PeerServer(servicePort, this);
-        peerServer.start();
+            String localPeerId = username + "@" + localIP + ":" + servicePort;
 
-        // UI refresher
-        uiRefresher = Executors.newSingleThreadScheduledExecutor();
-        uiRefresher.scheduleAtFixedRate(() -> {
-            List<Peer> snap = discoveryListener.snapshot();
-            Platform.runLater(() -> {
-                peerList.setAll(snap);
-                tblPeers.refresh();
-            });
-        }, 0, 1, TimeUnit.SECONDS);
+            peerClient = new PeerClient(keyManager, localPeerId, servicePort, username);
+            callManager.setPeerClient(peerClient);
 
-        System.out.println("🟢 Network started on " + localIP + ":" + servicePort + " username=" + username);
+            // Listener UDP để nhận peer discovery
+            discoveryListener = new PeerDiscoveryListener(servicePort, discoveryPort) {
+                @Override
+                public List<Peer> snapshot() {
+                    List<Peer> peers = super.snapshot();
+                    // Lọc trùng đúng cả username + port
+                    boolean hasConflict = peers.stream()
+                            .anyMatch(p -> p.getUsername().equals(username) && p.getServicePort() == servicePort);
+
+                    if (hasConflict) {
+                        Platform.runLater(() -> alert("⚠️ Phát hiện trùng username và port trong mạng!"));
+                    }
+
+                    peers.removeIf(p -> p.getUsername().equals(username) && p.getServicePort() == servicePort);
+                    return peers;
+                }
+            };
+            discoveryListener.start();
+
+            // Sender UDP
+            discoverySender = new PeerDiscoverySender(username, servicePort, discoveryPort);
+            discoverySender.start();
+
+            // Server TCP
+            peerServer = new PeerServer(servicePort, this);
+            peerServer.start();
+
+            // UI refresher
+            uiRefresher = Executors.newSingleThreadScheduledExecutor();
+            uiRefresher.scheduleAtFixedRate(() -> {
+                List<Peer> snap = discoveryListener.snapshot();
+                Platform.runLater(() -> {
+                    peerList.setAll(snap);
+                    tblPeers.refresh();
+                });
+            }, 0, 1, TimeUnit.SECONDS);
+
+            System.out.println("🟢 Network started on " + localIP + ":" + servicePort + " username=" + username);
+            System.out.println("🟢 Discovery UDP port: " + discoveryPort);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            alert("❌ Lỗi khi start network: " + e.getMessage());
+        }
     }
+
 
 
     private void stopNetwork() {
