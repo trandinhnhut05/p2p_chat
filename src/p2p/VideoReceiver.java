@@ -51,6 +51,8 @@ public class VideoReceiver extends Thread {
 
         try {
             socket = new DatagramSocket(port);
+            System.out.println("🎥 VideoReceiver started on port " + port);
+
             byte[] buf = new byte[1500];
 
             while (running) {

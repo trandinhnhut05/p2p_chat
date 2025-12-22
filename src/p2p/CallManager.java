@@ -40,6 +40,7 @@ public class CallManager {
         );
 
         activeCalls.put(callId, session);
+        session.startReceiving();
     }
 
     // Khi nhận cuộc gọi đến (incoming)
