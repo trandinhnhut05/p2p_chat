@@ -17,10 +17,6 @@ import java.util.Arrays;
 
 public class VideoReceiver extends Thread {
 
-    static {
-        System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
-    }
-
     private final int port;
     private final KeyManager keyManager;
     private final ImageView imageView;
@@ -42,13 +38,16 @@ public class VideoReceiver extends Thread {
 
     @Override
     public void run() {
+        if (!OpenCVLoader.init()) return; // kiểm tra OpenCV
+
         try {
             socket = new DatagramSocket(port);
+            byte[] buf = new byte[1500];
 
             while (running) {
-                DatagramPacket pkt = new DatagramPacket(new byte[1500], 1500);
+                DatagramPacket pkt = new DatagramPacket(buf, buf.length);
                 socket.receive(pkt);
-                byte[] data = Arrays.copyOf(pkt.getData(), pkt.getLength());
+                byte[] data = pkt.getData();
 
                 short frameId = (short) (((data[0] & 0xFF) << 8) | (data[1] & 0xFF));
                 int index = data[2] & 0xFF;
@@ -68,11 +67,6 @@ public class VideoReceiver extends Thread {
                 }
 
                 if (received == expected) {
-                    if (!keyManager.hasKey(callKey)) {
-                        Thread.sleep(10);
-                        continue;
-                    }
-                    SecretKey key = keyManager.getOrCreate(callKey);
                     int size = Arrays.stream(chunks).mapToInt(b -> b.length).sum();
                     byte[] full = new byte[size];
                     int pos = 0;
@@ -80,6 +74,9 @@ public class VideoReceiver extends Thread {
                         System.arraycopy(c, 0, full, pos, c.length);
                         pos += c.length;
                     }
+
+                    if (!keyManager.hasKey(callKey)) continue;
+                    SecretKey key = keyManager.getOrCreate(callKey);
 
                     byte[] iv = Arrays.copyOfRange(full, 0, 16);
                     byte[] enc = Arrays.copyOfRange(full, 16, full.length);
@@ -90,13 +87,11 @@ public class VideoReceiver extends Thread {
                         Image fx = matToImage(img);
                         Platform.runLater(() -> imageView.setImage(fx));
                     }
-
                     chunks = null;
                     received = 0;
                     expected = -1;
                 }
             }
-
         } catch (Exception e) {
             if (running) e.printStackTrace();
         }
@@ -111,8 +106,6 @@ public class VideoReceiver extends Thread {
     private Image matToImage(Mat mat) {
         MatOfByte buf = new MatOfByte();
         Imgcodecs.imencode(".jpg", mat, buf);
-        Image img = new Image(new ByteArrayInputStream(buf.toArray()));
-        buf.release();
-        return img;
+        return new Image(new ByteArrayInputStream(buf.toArray()));
     }
 }

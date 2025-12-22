@@ -1,5 +1,6 @@
 package p2p;
 
+import javafx.application.Platform;
 import javafx.scene.image.ImageView;
 import p2p.crypto.KeyManager;
 
@@ -7,10 +8,6 @@ import java.net.InetAddress;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Quản lý các session call P2P video/audio
- * Hỗ trợ 2 chiều: gửi và nhận video/voice đồng thời
- */
 public class CallManager {
 
     private final KeyManager keyManager;
@@ -29,44 +26,43 @@ public class CallManager {
         return peerClient;
     }
 
-    /** Caller tạo session outgoing call */
+    /* ========== Caller tạo outgoing call ========== */
     public void createOutgoingCall(Peer remotePeer, String callId,
                                    int localVideoPort, int localAudioPort,
-                                   ImageView localVideoView) {
+                                   ImageView localPreview) {
+
+        remotePeer.setVideoPort(localVideoPort);
+        remotePeer.setAudioPort(localAudioPort);
 
         keyManager.getOrCreate(callId);
 
         CallSession session = new CallSession(remotePeer, callId,
-                localVideoPort, localAudioPort,
-                0, 0, keyManager, localVideoView);
+                localVideoPort, localAudioPort, 0, 0,
+                keyManager, localPreview);
 
         activeCalls.put(callId, session);
 
-        // Luôn start receiver trước sender
         session.startReceiving();
     }
 
-    /** Callee nhận incoming call */
+    /* ========== Callee nhận incoming call ========== */
     public void onIncomingCall(Peer fromPeer, String callId,
                                int remoteVideoPort, int remoteAudioPort,
-                               ImageView remoteVideoView) {
+                               ImageView remoteView) {
 
         keyManager.getOrCreate(callId);
 
         CallSession session = new CallSession(fromPeer, callId,
                 0, 0, remoteVideoPort, remoteAudioPort,
-                keyManager, remoteVideoView);
+                keyManager, remoteView);
 
         activeCalls.put(callId, session);
 
-        // Chỉ start receiver trước sender
         session.startReceiving();
     }
 
-    /** Khi peer gửi CALL_ACCEPT */
     public void onCallAccepted(Peer fromPeer, String callId,
                                int remoteVideoPort, int remoteAudioPort) {
-
         CallSession session = activeCalls.get(callId);
         if (session != null) {
             session.setRemotePorts(remoteVideoPort, remoteAudioPort);
@@ -79,7 +75,7 @@ public class CallManager {
         if (session != null) session.stop();
     }
 
-    /** ==================== CallSession ==================== */
+    /* ===================== CallSession ===================== */
     private static class CallSession {
         private final Peer remotePeer;
         private final String callId;
@@ -93,8 +89,6 @@ public class CallManager {
 
         private VideoSender videoSender;
         private VideoReceiver videoReceiver;
-        private VoiceSender voiceSender;
-        private VoiceReceiver voiceReceiver;
 
         public CallSession(Peer remotePeer, String callId,
                            int localVideoPort, int localAudioPort,
@@ -120,33 +114,27 @@ public class CallManager {
             this.remoteAudioPort = audioPort;
         }
 
-        /** Start sender để gửi dữ liệu tới remote peer */
         public void startSending() {
             try {
+                if (!OpenCVLoader.init()) {
+                    System.err.println("❌ Cannot start sending: OpenCV not loaded");
+                    return;
+                }
                 InetAddress target = remotePeer.getAddress();
                 if (videoSender == null && remoteVideoPort > 0) {
                     videoSender = new VideoSender(target, remoteVideoPort, keyManager, callId, videoView);
                     videoSender.start();
                 }
-                if (voiceSender == null && remoteAudioPort > 0) {
-                    voiceSender = new VoiceSender(target, remoteAudioPort, keyManager, callId);
-                    voiceSender.start();
-                }
+                // Tương tự với VoiceSender nếu có
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
 
-        /** Start receiver để nhận dữ liệu từ remote peer */
         public void startReceiving() {
             try {
-                int tries = 0;
-                while (!keyManager.hasKey(callId) && tries < 20) {
-                    Thread.sleep(50);
-                    tries++;
-                }
-                if (!keyManager.hasKey(callId)) {
-                    System.err.println("❌ Cannot start receiver, missing key: " + callId);
+                if (!OpenCVLoader.init()) {
+                    System.err.println("❌ Cannot start receiving: OpenCV not loaded");
                     return;
                 }
 
@@ -154,22 +142,15 @@ public class CallManager {
                     videoReceiver = new VideoReceiver(localVideoPort, keyManager, videoView, callId);
                     videoReceiver.start();
                 }
-                if (voiceReceiver == null && localAudioPort > 0) {
-                    voiceReceiver = new VoiceReceiver(localAudioPort, keyManager, callId);
-                    voiceReceiver.start();
-                }
-
+                // Tương tự với VoiceReceiver nếu có
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
 
-        /** Stop tất cả sender + receiver */
         public void stop() {
-            if (videoSender != null) { videoSender.stopSend(); videoSender = null; }
-            if (voiceSender != null) { voiceSender.stopSend(); voiceSender = null; }
-            if (videoReceiver != null) { videoReceiver.stopReceive(); videoReceiver = null; }
-            if (voiceReceiver != null) { voiceReceiver.stopReceive(); voiceReceiver = null; }
+            if (videoSender != null) videoSender.stopSend();
+            if (videoReceiver != null) videoReceiver.stopReceive();
         }
     }
 }

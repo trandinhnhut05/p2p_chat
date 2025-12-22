@@ -19,25 +19,19 @@ import java.net.InetAddress;
 
 public class VideoSender extends Thread {
 
-    static {
-        // Load OpenCV native library
-        System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
-    }
-
-    private static final int CHUNK_SIZE = 1300;
     private static final int WIDTH = 320;
     private static final int HEIGHT = 240;
+    private static final int CHUNK_SIZE = 1300;
 
     private final InetAddress target;
     private final int port;
     private final KeyManager keyManager;
     private final String callKey;
+    private final ImageView localPreview;
     private volatile boolean running = true;
     private short frameId = 0;
-    private final ImageView localPreview;
 
-    public VideoSender(InetAddress target, int port, KeyManager keyManager,
-                       String callKey, ImageView localPreview) {
+    public VideoSender(InetAddress target, int port, KeyManager keyManager, String callKey, ImageView localPreview) {
         this.target = target;
         this.port = port;
         this.keyManager = keyManager;
@@ -47,6 +41,8 @@ public class VideoSender extends Thread {
 
     @Override
     public void run() {
+        if (!OpenCVLoader.init()) return; // kiểm tra OpenCV
+
         VideoCapture cam = new VideoCapture(0);
         if (!cam.isOpened()) {
             System.err.println("❌ Cannot open camera");
@@ -56,9 +52,6 @@ public class VideoSender extends Thread {
         try (DatagramSocket socket = new DatagramSocket()) {
             Mat frame = new Mat();
             while (running) {
-                SecretKey key = keyManager.getOrCreate(callKey);
-                if (key == null) { Thread.sleep(50); continue; }
-
                 cam.read(frame);
                 if (frame.empty()) continue;
 
@@ -66,24 +59,22 @@ public class VideoSender extends Thread {
 
                 if (localPreview != null) {
                     Mat copy = frame.clone();
-                    Image fxImage = matToImage(copy);
-                    Platform.runLater(() -> localPreview.setImage(fxImage));
+                    Image fx = matToImage(copy);
+                    Platform.runLater(() -> localPreview.setImage(fx));
                     copy.release();
                 }
 
-                // Encode JPEG
-                MatOfByte jpg = new MatOfByte();
-                Imgcodecs.imencode(".jpg", frame, jpg);
-                byte[] raw = jpg.toArray();
+                SecretKey key = keyManager.getOrCreate(callKey);
+                if (key == null) continue;
 
-                // 🔑 Generate IV ONCE per frame
-                IvParameterSpec ivSpec = CryptoUtils.generateIv();
-                byte[] encrypted = CryptoUtils.encryptAES(raw, key, ivSpec);
+                MatOfByte buf = new MatOfByte();
+                Imgcodecs.imencode(".jpg", frame, buf);
+                byte[] encrypted = CryptoUtils.encryptAES(buf.toArray(), key, CryptoUtils.generateIv());
+                byte[] iv = CryptoUtils.generateIv().getIV();
 
-                // Prepare payload = IV + encrypted
-                byte[] payload = new byte[16 + encrypted.length];
-                System.arraycopy(ivSpec.getIV(), 0, payload, 0, 16);
-                System.arraycopy(encrypted, 0, payload, 16, encrypted.length);
+                byte[] payload = new byte[iv.length + encrypted.length];
+                System.arraycopy(iv, 0, payload, 0, iv.length);
+                System.arraycopy(encrypted, 0, payload, iv.length, encrypted.length);
 
                 int totalChunks = (int) Math.ceil(payload.length / (double) CHUNK_SIZE);
                 frameId++;
@@ -99,14 +90,13 @@ public class VideoSender extends Thread {
                     packet[3] = (byte) totalChunks;
                     packet[4] = (byte) (len >> 8);
                     packet[5] = (byte) len;
-
                     System.arraycopy(payload, off, packet, 6, len);
+
                     socket.send(new DatagramPacket(packet, packet.length, target, port));
                 }
 
-                Thread.sleep(40); // ~25 fps
+                Thread.sleep(40);
             }
-
         } catch (Exception e) {
             e.printStackTrace();
         } finally {
@@ -114,14 +104,14 @@ public class VideoSender extends Thread {
         }
     }
 
-    private Image matToImage(Mat frame) {
-        MatOfByte buffer = new MatOfByte();
-        Imgcodecs.imencode(".jpg", frame, buffer);
-        return new Image(new ByteArrayInputStream(buffer.toArray()));
-    }
-
     public void stopSend() {
         running = false;
         interrupt();
+    }
+
+    private Image matToImage(Mat mat) {
+        MatOfByte buf = new MatOfByte();
+        Imgcodecs.imencode(".png", mat, buf);
+        return new Image(new ByteArrayInputStream(buf.toArray()));
     }
 }
