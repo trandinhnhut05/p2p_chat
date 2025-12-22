@@ -60,16 +60,17 @@ public class PeerServer extends Thread {
         acceptPool.shutdownNow();
         interrupt();
     }
-    public static int findAvailablePort(int startPort) {
-        int port = startPort;
-        while (port < 65535) {
-            if (isPortAvailable(port)) {
-                return port;
+    public static int findAvailablePort(int start) {
+        for (int port = start; port < start + 1000; port++) {
+            try (Socket ignored = new Socket("localhost", port)) {
+                // port in use
+            } catch (Exception e) {
+                return port; // available
             }
-            port++;
         }
-        throw new RuntimeException("No available port found");
+        return -1;
     }
+
 
 
     /**

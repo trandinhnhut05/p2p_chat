@@ -83,6 +83,8 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         localIP = InetAddress.getLocalHost().getHostAddress();
         keyManager = new KeyManager();
         callManager = new CallManager(keyManager);
+        callManager.setPeerClient(peerClient);
+
         settingsStore = new SettingsStore();
         OpenCVLoader.init();
 
@@ -399,7 +401,7 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
 
                 peerClient.sendCallAccept(peer, localVideoPort, localAudioPort);
 
-                videoSender = new VideoSender(peer.getAddress(), callerVideoPort, keyManager, currentCallKey);
+                videoSender = new VideoSender(peer.getAddress(), callerVideoPort, keyManager, currentCallKey,videoViewLocal);
                 videoSender.start();
                 voiceSender = new VoiceSender(peer.getAddress(), callerAudioPort, keyManager, currentCallKey);
                 voiceSender.start();
@@ -426,7 +428,7 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
                 " (videoPort=" + calleeVideoPort + ", audioPort=" + calleeAudioPort + ")");
 
         // Sender tới peer
-        videoSender = new VideoSender(peer.getAddress(), calleeVideoPort, keyManager, currentCallKey);
+        videoSender = new VideoSender(peer.getAddress(), calleeVideoPort, keyManager, currentCallKey,videoViewLocal);
         videoSender.start();
 
         voiceSender = new VoiceSender(peer.getAddress(), calleeAudioPort, keyManager, currentCallKey);
@@ -514,7 +516,8 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
                 peer.getAddress(),  // địa chỉ IP của peer
                 remoteVideoPort,    // cổng nhận video
                 keyManager,         // KeyManager để mã hóa video
-                currentCallKey      // callKey dùng chung giữa 2 bên
+                currentCallKey,
+                videoViewLocal// callKey dùng chung giữa 2 bên
         );
 
         videoSender.start();
@@ -537,7 +540,8 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
 
 
     public void onIncomingMessage(Peer peer, String msg) {
-        txtChat.appendText(peer.getUsername() + ": " + msg);
+        txtChat.appendText(peer.getUsername() + ": " + msg + "\n");
+
 
         ChatWindow cw = openChats.get(peer.getId());
         if (cw != null) {

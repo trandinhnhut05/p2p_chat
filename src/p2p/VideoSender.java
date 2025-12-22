@@ -1,5 +1,8 @@
 package p2p;
 
+import javafx.application.Platform;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import org.opencv.core.*;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
@@ -10,6 +13,7 @@ import p2p.crypto.KeyManager;
 
 import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
+import java.io.ByteArrayInputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -27,13 +31,15 @@ public class VideoSender extends Thread {
 
     private volatile boolean running = true;
     private short frameId = 0;
+    private final ImageView localPreview;
 
     public VideoSender(InetAddress target, int port,
-                       KeyManager keyManager, String callKey) {
+                       KeyManager keyManager, String callKey, ImageView localPreview) {
         this.target = target;
         this.port = port;
         this.keyManager = keyManager;
         this.callKey = callKey;
+        this.localPreview = localPreview;
     }
 
     @Override
@@ -54,15 +60,18 @@ public class VideoSender extends Thread {
                     continue;
                 }
 
-                if (key == null) {
-                    Thread.sleep(50);
-                    continue;
-                }
-
                 cam.read(frame);
                 if (frame.empty()) continue;
 
                 Imgproc.resize(frame, frame, new Size(WIDTH, HEIGHT));
+
+                // ================= UPDATE SELF-PREVIEW =================
+                if (localPreview != null) {
+                    Mat copy = frame.clone();
+                    Image fxImage = matToImage(copy);
+                    Platform.runLater(() -> localPreview.setImage(fxImage));
+                    copy.release();
+                }
 
                 MatOfByte jpg = new MatOfByte();
                 Imgcodecs.imencode(".jpg", frame, jpg);
@@ -91,7 +100,6 @@ public class VideoSender extends Thread {
                     packet[5] = (byte) len;
 
                     System.arraycopy(payload, off, packet, 6, len);
-
                     socket.send(new DatagramPacket(packet, packet.length, target, port));
                 }
 
@@ -101,6 +109,16 @@ public class VideoSender extends Thread {
             e.printStackTrace();
         } finally {
             cam.release();
+        }
+    }
+    private Image matToImage(Mat frame) {
+        try {
+            MatOfByte buffer = new MatOfByte();
+            Imgcodecs.imencode(".png", frame, buffer);
+            return new Image(new ByteArrayInputStream(buffer.toArray()));
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
         }
     }
 

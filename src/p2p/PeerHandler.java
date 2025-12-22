@@ -156,7 +156,8 @@ public class PeerHandler implements Runnable {
             mainUI.onIncomingCall(peer, callKey, remoteVideoPort, remoteAudioPort);
 
             // Gửi CALL_ACCEPT với local ports
-            peer.sendCallAccept(peer, callKey, localVideoPort, localAudioPort);
+            callManager.getPeerClient().sendCallAccept(peer, localVideoPort, localAudioPort);
+
 
         });
     }

@@ -15,9 +15,18 @@ public class CallManager {
 
     private final KeyManager keyManager;
     private final Map<String, CallSession> activeCalls = new HashMap<>();
+    private PeerClient peerClient;
 
     public CallManager(KeyManager keyManager) {
         this.keyManager = keyManager;
+    }
+
+    public void setPeerClient(PeerClient peerClient) {
+        this.peerClient = peerClient;
+    }
+
+    public PeerClient getPeerClient() {
+        return peerClient;
     }
 
     /**
@@ -108,7 +117,7 @@ public class CallManager {
             try {
                 InetAddress target = remotePeer.getAddress();
                 if (videoSender == null && remoteVideoPort > 0) {
-                    videoSender = new VideoSender(target, remoteVideoPort, keyManager, callId);
+                    videoSender = new VideoSender(target, remoteVideoPort, keyManager, callId, videoView);
                     videoSender.start();
                 }
                 if (voiceSender == null && remoteAudioPort > 0) {
