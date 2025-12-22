@@ -126,14 +126,16 @@ public class Peer {
                 int localVideoPort = getFreePort();
                 int localAudioPort = getFreePort();
                 Platform.runLater(() -> callManager.onCallAccepted(
-                        fromPeer,       // peer gửi CALL_ACCEPT
-                        callId,         // callId
-                        acceptVideoPort,// remoteVideoPort
-                        acceptAudioPort,// remoteAudioPort
-                        localVideoPort, // localVideoPort
-                        localAudioPort, // localAudioPort
-                        remoteVideoView // ImageView hiển thị video
+                        fromPeer,          // peer gửi CALL_ACCEPT
+                        callId,            // callId
+                        acceptVideoPort,   // remoteVideoPort
+                        acceptAudioPort,   // remoteAudioPort
+                        localVideoPort,    // localVideoPort
+                        localAudioPort,    // localAudioPort
+                        null,              // localPreview (nếu chưa có preview)
+                        remoteVideoView    // remoteView
                 ));
+
                 break;
         }
     }

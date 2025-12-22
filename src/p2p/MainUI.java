@@ -383,12 +383,13 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
                     );
 
                     // 2️⃣ 🔥 START SENDING CHO CALLEE (BẠN)
-                    callManager.onCallAccepted(
+                    // Khi nhận CALL_REQUEST
+                    callManager.onIncomingCall(
                             peer,
                             callKey,
-                            callerVideoPort, callerAudioPort, // remote
-                            localVideoPort, localAudioPort,   // local
-                            videoViewLocal                    // preview của bạn
+                            callerVideoPort,
+                            callerAudioPort,
+                            videoViewRemote // hiển thị video từ caller
                     );
 
                     // 3️⃣ báo cho caller biết port của bạn
@@ -423,8 +424,10 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
                 calleeAudioPort,   // remoteAudioPort
                 localVideoPort,    // localVideoPort
                 localAudioPort,    // localAudioPort
-                videoViewLocal     // videoView
+                videoViewLocal,    // local preview
+                videoViewRemote    // remote view
         );
+
 
 
 
