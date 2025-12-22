@@ -385,26 +385,16 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
     public void onCallAccepted(Peer peer, int calleeVideoPort, int calleeAudioPort) {
         if (!inCall || peer != currentCallPeer) return;
 
-        // Set remote ports cho session và start sender
-        callManager.onCallAccepted(peer, currentCallKey, calleeVideoPort, calleeAudioPort);
+        System.out.println("📥 Call accepted by " + peer.getUsername() +
+                " videoPort=" + calleeVideoPort + " audioPort=" + calleeAudioPort);
+
+        // Sender gửi dữ liệu đến peer
+        voiceSender = new VoiceSender(peer.getAddress(), calleeAudioPort, keyManager, currentCallKey);
+        voiceSender.start();
+
+        videoSender = new VideoSender(peer.getAddress(), calleeVideoPort, keyManager, currentCallKey, videoViewLocal);
+        videoSender.start();
     }
-
-
-
-
-//    public void onCallAccepted(Peer peer, int calleeVideoPort, int calleeAudioPort) {
-//        if (!inCall || peer != currentCallPeer) return;
-//
-//        System.out.println("📥 Call accepted by " + peer.getUsername() +
-//                " videoPort=" + calleeVideoPort + " audioPort=" + calleeAudioPort);
-//
-//        // Sender gửi dữ liệu đến peer
-//        voiceSender = new VoiceSender(peer.getAddress(), calleeAudioPort, keyManager, currentCallKey);
-//        voiceSender.start();
-//
-//        videoSender = new VideoSender(peer.getAddress(), calleeVideoPort, keyManager, currentCallKey, videoViewLocal);
-//        videoSender.start();
-//    }
 
 
     public void stopCall() {
