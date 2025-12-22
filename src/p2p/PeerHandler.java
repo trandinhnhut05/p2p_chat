@@ -6,11 +6,9 @@ import p2p.crypto.KeyManager;
 import javax.crypto.spec.IvParameterSpec;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.net.Socket;
-import java.nio.charset.StandardCharsets;
 import java.io.File;
 import java.io.FileOutputStream;
-
+import java.net.Socket;
 
 /**
  * PeerHandler
@@ -63,7 +61,6 @@ public class PeerHandler implements Runnable {
                 case "CALL_END" ->
                         Platform.runLater(() -> mainUI.stopCallFromRemote(peer));
                 case "FILE" -> handleFile(dis);
-
             }
 
             socket.close();
@@ -73,19 +70,14 @@ public class PeerHandler implements Runnable {
         }
     }
 
-
     /* ================= SESSION KEY ================= */
-
     private void handleSessionKey(DataInputStream dis, DataOutputStream dos) throws Exception {
         String keyId = dis.readUTF(); // bỏ dùng
 
         byte[] keyBytes = new byte[16];
         dis.readFully(keyBytes);
 
-        // 🔥 rebuild ID trước
         peer.rebuildId();
-
-        // 🔐 store theo peer.getId()
         keyManager.storeSessionKey(peer.getId(), keyBytes);
 
         System.out.println("🔐 Session key stored for peer: " + peer.getId());
@@ -94,9 +86,7 @@ public class PeerHandler implements Runnable {
         dos.flush();
     }
 
-
     /* ================= MESSAGE ================= */
-
     private void handleMessage(DataInputStream dis) throws Exception {
 
         int ivLen = dis.readInt();
@@ -112,7 +102,7 @@ public class PeerHandler implements Runnable {
                 new IvParameterSpec(iv)
         ).doFinal(encrypted);
 
-        String msg = new String(decrypted, StandardCharsets.UTF_8);
+        String msg = new String(decrypted);
 
         if (settings.isBlockedById(peer.getId())) return;
 
@@ -125,19 +115,12 @@ public class PeerHandler implements Runnable {
     }
 
     /* ================= CALL ================= */
-
     private void handleCallRequest(DataInputStream dis) throws Exception {
         String callKey = dis.readUTF();
 
-        // Chờ session key
-        int retry = 10;
-        while (!keyManager.hasKey(callKey) && retry-- > 0) {
-            Thread.sleep(50);
-        }
-
+        // 🔑 Tạo key ngay nếu chưa có
         if (!keyManager.hasKey(callKey)) {
-            System.err.println("❌ Missing call key: " + callKey);
-            return;
+            keyManager.getOrCreate(callKey);
         }
 
         peer.setCallKey(callKey);
@@ -157,17 +140,15 @@ public class PeerHandler implements Runnable {
 
             // Gửi CALL_ACCEPT với local ports
             callManager.getPeerClient().sendCallAccept(peer, localVideoPort, localAudioPort);
-
-
         });
     }
 
     private void handleCallAccept(DataInputStream dis) throws Exception {
         String callKey = dis.readUTF();
 
+        // 🔑 Tạo key ngay nếu chưa có
         if (!keyManager.hasKey(callKey)) {
-            System.err.println("❌ Missing call key: " + callKey);
-            return;
+            keyManager.getOrCreate(callKey);
         }
 
         peer.setCallKey(callKey);
@@ -178,34 +159,27 @@ public class PeerHandler implements Runnable {
         Platform.runLater(() -> mainUI.onCallAccepted(peer, remoteVideoPort, remoteAudioPort));
     }
 
-
     /* ================= FILE ================= */
-
     private void handleFile(DataInputStream dis) {
         try {
-            // 1️⃣ đọc keyId & filename
             String keyId = dis.readUTF();
             String fileName = dis.readUTF();
 
             if (settings.isBlockedById(keyId)) return;
 
-            // 2️⃣ đọc IV
             int ivLen = dis.readInt();
             byte[] iv = new byte[ivLen];
             dis.readFully(iv);
 
-            // 3️⃣ đọc data
             int dataLen = dis.readInt();
             byte[] encrypted = new byte[dataLen];
             dis.readFully(encrypted);
 
-            // 4️⃣ decrypt
             byte[] plain = keyManager.createDecryptCipher(
                     keyId,
                     new IvParameterSpec(iv)
             ).doFinal(encrypted);
 
-            // 5️⃣ ghi file
             File dir = new File(System.getProperty("user.home"), "Downloads/p2p-chat");
             if (!dir.exists()) dir.mkdirs();
 
@@ -214,12 +188,8 @@ public class PeerHandler implements Runnable {
                 fos.write(plain);
             }
 
-            // 6️⃣ update UI
             Platform.runLater(() ->
-                    mainUI.onIncomingMessage(
-                            peer,
-                            "[FILE] Đã nhận: " + outFile.getName()
-                    )
+                    mainUI.onIncomingMessage(peer, "[FILE] Đã nhận: " + outFile.getName())
             );
 
             System.out.println("📥 File received: " + outFile.getAbsolutePath());
@@ -228,6 +198,4 @@ public class PeerHandler implements Runnable {
             e.printStackTrace();
         }
     }
-
-
 }
