@@ -18,7 +18,6 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 
 public class VideoSender extends Thread {
-
     private static final int WIDTH = 320;
     private static final int HEIGHT = 240;
     private static final int CHUNK_SIZE = 1300;
@@ -41,7 +40,7 @@ public class VideoSender extends Thread {
 
     @Override
     public void run() {
-        if (!OpenCVLoader.init()) return; // kiểm tra OpenCV
+        if (!OpenCVLoader.init()) return;
 
         VideoCapture cam = new VideoCapture(0);
         if (!cam.isOpened()) {
@@ -73,13 +72,13 @@ public class VideoSender extends Thread {
                 byte[] encrypted = CryptoUtils.encryptAES(buf.toArray(), key, ivSpec);
                 byte[] iv = ivSpec.getIV();
 
-
                 byte[] payload = new byte[iv.length + encrypted.length];
                 System.arraycopy(iv, 0, payload, 0, iv.length);
                 System.arraycopy(encrypted, 0, payload, iv.length, encrypted.length);
 
                 int totalChunks = (int) Math.ceil(payload.length / (double) CHUNK_SIZE);
                 frameId++;
+                if (frameId < 0) frameId = 0; // reset khi overflow
 
                 for (int i = 0; i < totalChunks; i++) {
                     int off = i * CHUNK_SIZE;

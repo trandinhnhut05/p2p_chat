@@ -5,6 +5,8 @@ import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import org.opencv.core.*;
 import org.opencv.imgcodecs.Imgcodecs;
+import org.opencv.imgproc.Imgproc;
+import org.opencv.videoio.VideoCapture;
 import p2p.crypto.CryptoUtils;
 import p2p.crypto.KeyManager;
 
@@ -13,10 +15,13 @@ import javax.crypto.spec.IvParameterSpec;
 import java.io.ByteArrayInputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.net.InetAddress;
 import java.util.Arrays;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class VideoReceiver extends Thread {
-
+    private static final int TIMEOUT_MS = 100; // Nếu frame chưa đầy 100ms -> bỏ
     private final int port;
     private final KeyManager keyManager;
     private final ImageView imageView;
@@ -24,10 +29,14 @@ public class VideoReceiver extends Thread {
     private volatile boolean running = true;
     private DatagramSocket socket;
 
-    private byte[][] chunks;
-    private int received = 0;
-    private int expected = -1;
-    private short currentFrame = -1;
+    private static class FrameBuffer {
+        byte[][] chunks;
+        long timestamp;
+        int received = 0;
+        int expected = -1;
+    }
+
+    private final Map<Short, FrameBuffer> frames = new ConcurrentHashMap<>();
 
     public VideoReceiver(int port, KeyManager keyManager, ImageView imageView, String callKey) {
         this.port = port;
@@ -38,7 +47,7 @@ public class VideoReceiver extends Thread {
 
     @Override
     public void run() {
-        if (!OpenCVLoader.init()) return; // kiểm tra OpenCV
+        if (!OpenCVLoader.init()) return;
 
         try {
             socket = new DatagramSocket(port);
@@ -47,37 +56,40 @@ public class VideoReceiver extends Thread {
             while (running) {
                 DatagramPacket pkt = new DatagramPacket(buf, buf.length);
                 socket.receive(pkt);
-                byte[] data = pkt.getData();
+                byte[] data = Arrays.copyOf(pkt.getData(), pkt.getLength());
 
                 short frameId = (short) (((data[0] & 0xFF) << 8) | (data[1] & 0xFF));
                 int index = data[2] & 0xFF;
                 int total = data[3] & 0xFF;
                 int len = ((data[4] & 0xFF) << 8) | (data[5] & 0xFF);
 
-                if (frameId != currentFrame) {
-                    currentFrame = frameId;
-                    chunks = new byte[total][];
-                    received = 0;
-                    expected = total;
+                FrameBuffer fb = frames.computeIfAbsent(frameId, k -> {
+                    FrameBuffer f = new FrameBuffer();
+                    f.chunks = new byte[total][];
+                    f.timestamp = System.currentTimeMillis();
+                    f.expected = total;
+                    return f;
+                });
+
+                if (fb.chunks[index] == null) {
+                    fb.chunks[index] = Arrays.copyOfRange(data, 6, 6 + len);
+                    fb.received++;
                 }
 
-                if (chunks[index] == null) {
-                    chunks[index] = Arrays.copyOfRange(data, 6, 6 + len);
-                    received++;
-                }
-
-                if (received == expected) {
-                    int size = Arrays.stream(chunks).mapToInt(b -> b.length).sum();
+                if (fb.received == fb.expected) {
+                    // Gộp frame
+                    int size = Arrays.stream(fb.chunks).mapToInt(b -> b.length).sum();
                     byte[] full = new byte[size];
                     int pos = 0;
-                    for (byte[] c : chunks) {
+                    for (byte[] c : fb.chunks) {
                         System.arraycopy(c, 0, full, pos, c.length);
                         pos += c.length;
                     }
 
+                    frames.remove(frameId); // xong frame này
+
                     if (!keyManager.hasKey(callKey)) continue;
                     SecretKey key = keyManager.getOrCreate(callKey);
-
                     byte[] iv = Arrays.copyOfRange(full, 0, 16);
                     byte[] enc = Arrays.copyOfRange(full, 16, full.length);
 
@@ -87,10 +99,11 @@ public class VideoReceiver extends Thread {
                         Image fx = matToImage(img);
                         Platform.runLater(() -> imageView.setImage(fx));
                     }
-                    chunks = null;
-                    received = 0;
-                    expected = -1;
                 }
+
+                // Clean old frames timeout
+                long now = System.currentTimeMillis();
+                frames.entrySet().removeIf(e -> now - e.getValue().timestamp > TIMEOUT_MS);
             }
         } catch (Exception e) {
             if (running) e.printStackTrace();
