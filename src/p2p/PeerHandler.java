@@ -149,10 +149,12 @@ public class PeerHandler implements Runnable {
         int remoteVideoPort = dis.readInt();
         int remoteAudioPort = dis.readInt();
 
-        // Delegate lên MainUI
-        Platform.runLater(() -> mainUI.onCallAccepted(peer, remoteVideoPort, remoteAudioPort, callKey));
-
+        Platform.runLater(() -> {
+            mainUI.setCurrentCallKey(callKey);   // ✅ QUAN TRỌNG
+            mainUI.onCallAccepted(peer, remoteVideoPort, remoteAudioPort, callKey);
+        });
     }
+
 
 
     /* ================= FILE ================= */

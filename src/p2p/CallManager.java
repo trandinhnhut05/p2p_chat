@@ -155,17 +155,17 @@ public class CallManager {
 
         // Bật/tắt video
 
-        public void toggleVideo() {
-            videoEnabled = !videoEnabled;
-
-            if (videoSender != null) {
-                videoSender.setPaused(!videoEnabled);
-            }
-
-            if (localPreview != null) {
-                localPreview.setVisible(videoEnabled);
-            }
-        }
+//        public void toggleVideo() {
+//            videoEnabled = !videoEnabled;
+//
+//            if (videoSender != null) {
+//                videoSender.setPaused(!videoEnabled);
+//            }
+//
+//            if (localPreview != null) {
+//                localPreview.setVisible(videoEnabled);
+//            }
+//        }
 
 
         public void setLocalPorts(int videoPort, int audioPort) {

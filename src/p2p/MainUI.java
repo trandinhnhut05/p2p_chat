@@ -47,6 +47,10 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
     private Peer currentCallPeer = null;
     private String currentCallKey = null;
     private String currentCallId = null;
+    public void setCurrentCallKey(String key) {
+        this.currentCallKey = key;
+    }
+
 
     private Button btnVideoCall, btnEndVideo;
 
@@ -421,12 +425,17 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
                                int calleeAudioPort,
                                String callKey) {
 
-        if (peer != currentCallPeer || !callKey.equals(currentCallKey)) {
+        if (currentCallPeer == null
+                || !peer.getId().equals(currentCallPeer.getId())
+                || !callKey.equals(currentCallKey)) {
+
             System.out.println("❌ onCallAccepted ignored (mismatch)");
             return;
         }
 
+
         inCall = true; // ✅ set SAU khi check
+
 
         callManager.onCallAccepted(
                 peer,

@@ -100,6 +100,7 @@ public class PeerClient {
                                 int localVideoPortSend,
                                 int localAudioPortSend,
                                 String callKey) {
+        this.currentCallId = callKey;
 
         try {
             // 1️⃣ Tạo session key và đảm bảo remote peer có key
@@ -132,6 +133,8 @@ public class PeerClient {
                                int localVideoPort,
                                int localAudioPort,
                                String callKey) {
+        this.currentCallId = callKey;
+
 
         if (peer.getServicePort() <= 0 || callKey == null) {
             System.err.println("❌ Cannot send CALL_ACCEPT, missing servicePort or callKey");
