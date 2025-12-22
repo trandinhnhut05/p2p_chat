@@ -96,16 +96,15 @@ public class PeerClient {
 
     /* ================= CALL ================= */
 
-    public void sendCallRequest(
-            Peer peer,
-            int localVideoRecvPort,
-            int localAudioRecvPort,
-            String callKey
-    ) {
+    public void sendCallRequest(Peer peer,
+                                int localVideoPortSend,
+                                int localAudioPortSend,
+                                String callKey) {
+
         peer.setCallKey(callKey);
 
         try {
-            // 1️⃣ đảm bảo session key cho call
+            // 🔐 ensure call session key
             if (!keyManager.hasKey(callKey)) {
                 SecretKey key = keyManager.getOrCreate(callKey);
 
@@ -120,15 +119,15 @@ public class PeerClient {
                 }
             }
 
-            // 2️⃣ gửi CALL_REQUEST (chỉ gửi port mình LISTEN)
+            // 📞 CALL_REQUEST (2 port only)
             try (Socket socket = new Socket(peer.getAddress(), peer.getServicePort());
                  DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
 
                 sendHello(dos);
                 dos.writeUTF("CALL_REQUEST");
                 dos.writeUTF(callKey);
-                dos.writeInt(localVideoRecvPort);
-                dos.writeInt(localAudioRecvPort);
+                dos.writeInt(localVideoPortSend);
+                dos.writeInt(localAudioPortSend);
                 dos.flush();
             }
 
@@ -136,6 +135,7 @@ public class PeerClient {
             e.printStackTrace();
         }
     }
+
 
 
 

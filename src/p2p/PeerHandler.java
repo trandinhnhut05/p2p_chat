@@ -25,6 +25,7 @@ public class PeerHandler implements Runnable {
     private final CallManager callManager;
 
 
+
     public PeerHandler(Socket socket,
                        Peer peer,
                        KeyManager keyManager,
@@ -111,7 +112,7 @@ public class PeerHandler implements Runnable {
 
         peer.setCallKey(callKey);
 
-        int videoPort = dis.readInt();
+        int videoPort = dis.readInt(); // peer SEND → mình RECV
         int audioPort = dis.readInt();
 
         peer.setVideoPort(videoPort);
@@ -121,6 +122,7 @@ public class PeerHandler implements Runnable {
                 mainUI.onIncomingCall(peer, callKey, videoPort, audioPort)
         );
     }
+
 
 
 
