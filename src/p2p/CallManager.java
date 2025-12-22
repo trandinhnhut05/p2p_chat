@@ -71,16 +71,27 @@ public class CallManager {
                                int localVideoPort, int localAudioPort,
                                ImageView localPreview, ImageView remoteView) {
 
+        System.out.println("🔥 onCallAccepted CALLED");
+        System.out.println(
+                "callId=" + callId +
+                        ", remoteVideoPort=" + remoteVideoPort +
+                        ", localVideoPort=" + localVideoPort
+        );
+
         CallSession session = activeCalls.get(callId);
         if (session != null) {
             session.setLocalPorts(localVideoPort, localAudioPort);
             session.setRemotePorts(remoteVideoPort, remoteAudioPort);
             session.setLocalPreview(localPreview);
             session.setRemoteView(remoteView);
+
             session.startSending();
             session.startReceiving();
+        } else {
+            System.out.println("❌ session == null");
         }
     }
+
 
     // Kết thúc cuộc gọi
     public void endCall(String callId) {
