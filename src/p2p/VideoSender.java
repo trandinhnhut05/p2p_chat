@@ -28,7 +28,7 @@ public class VideoSender extends Thread {
     private final String callKey;
     private final ImageView localPreview;
     private volatile boolean running = true;
-    private short frameId = 0;
+    private int frameId = 0;
 
     public VideoSender(InetAddress target, int port, KeyManager keyManager, String callKey, ImageView localPreview) {
         this.target = target;
@@ -87,8 +87,8 @@ public class VideoSender extends Thread {
                 System.arraycopy(encrypted, 0, payload, iv.length, encrypted.length);
 
                 int totalChunks = (int) Math.ceil(payload.length / (double) CHUNK_SIZE);
-                frameId++;
-                if (frameId < 0) frameId = 0; // reset khi overflow
+                frameId = (frameId + 1) & 0xFFFF;
+                // reset khi overflow
 
                 for (int i = 0; i < totalChunks; i++) {
                     int off = i * CHUNK_SIZE;
