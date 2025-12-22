@@ -10,13 +10,15 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 
 public class VoiceReceiver extends Thread {
+
     private int port;
     private final KeyManager keyManager;
     private final String callKey;
     private volatile boolean running = true;
-    private DatagramSocket ds;
+    private DatagramSocket socket;
 
-    private final int BUFFER_SIZE = 1024;
+    private static final int AUDIO_PAYLOAD = 640; // 20ms @ 16kHz, 16bit mono
+    private static final int IV_SIZE = 16;
 
     public VoiceReceiver(int port, KeyManager keyManager, String callKey) {
         this.port = port;
@@ -24,29 +26,17 @@ public class VoiceReceiver extends Thread {
         this.callKey = callKey;
     }
 
-
     @Override
     public void run() {
         AudioFormat format = new AudioFormat(16000, 16, 1, true, true);
         DataLine.Info info = new DataLine.Info(SourceDataLine.class, format);
 
-        int frameSize = format.getFrameSize(); // 2 bytes
-
-        // Thử bind port, nếu bị chiếm thì tăng dần
-        int attempts = 0;
-        while (attempts < 5) {
-            try {
-                ds = new DatagramSocket(port);
-                System.out.println("VoiceReceiver listening on port " + port);
-                break;
-            } catch (Exception e) {
-                port++;
-                attempts++;
-            }
-        }
-
-        if (ds == null) {
-            System.err.println("❌ Cannot start VoiceReceiver, all ports busy");
+        // bind socket
+        try {
+            socket = new DatagramSocket(port);
+            System.out.println("🎧 VoiceReceiver listening on port " + port);
+        } catch (Exception e) {
+            System.err.println("❌ Cannot bind VoiceReceiver port " + port);
             return;
         }
 
@@ -54,48 +44,60 @@ public class VoiceReceiver extends Thread {
             speakers.open(format);
             speakers.start();
 
-            byte[] buf = new byte[BUFFER_SIZE + 16]; // 16 byte IV
+            byte[] buffer = new byte[AUDIO_PAYLOAD + IV_SIZE];
 
             while (running) {
-                DatagramPacket pkt = new DatagramPacket(buf, buf.length);
-                try {
-                    ds.receive(pkt);
-                } catch (java.net.SocketException e) {
-                    if (!running) break; // socket closed do stop
-                    else throw e;
+                DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+                socket.receive(packet);
+
+                // 🔒 WAIT FOR KEY (DO NOT CREATE)
+                if (!keyManager.hasKey(callKey)) {
+                    continue;
                 }
 
-                if (pkt.getLength() < 16) continue; // packet lỗi
-                byte[] ivBytes = new byte[16];
-                System.arraycopy(pkt.getData(), 0, ivBytes, 0, 16);
-                IvParameterSpec iv = new IvParameterSpec(ivBytes);
+                if (packet.getLength() <= IV_SIZE) {
+                    continue;
+                }
 
-                byte[] encrypted = new byte[pkt.getLength() - 16];
-                System.arraycopy(pkt.getData(), 16, encrypted, 0, encrypted.length);
+                byte[] ivBytes = new byte[IV_SIZE];
+                System.arraycopy(packet.getData(), 0, ivBytes, 0, IV_SIZE);
 
-                SecretKey aes = keyManager.getOrCreate(callKey);
-                if (aes == null) continue;
+                byte[] encrypted = new byte[packet.getLength() - IV_SIZE];
+                System.arraycopy(packet.getData(), IV_SIZE, encrypted, 0, encrypted.length);
 
-                byte[] decrypted = CryptoUtils.decryptAES(encrypted, aes, iv);
+                SecretKey key = keyManager.getSessionKey(callKey);
+                if (key == null) continue; // chưa có key, bỏ qua packet
 
-                // ⚡ đảm bảo số byte là bội số frame size
-                int bytesToWrite = decrypted.length - (decrypted.length % frameSize);
-                if (bytesToWrite > 0) {
-                    speakers.write(decrypted, 0, bytesToWrite);
+
+                byte[] decrypted;
+                try {
+                    decrypted = CryptoUtils.decryptAES(
+                            encrypted,
+                            key,
+                            new IvParameterSpec(ivBytes)
+                    );
+                } catch (Exception e) {
+                    // ❗ drop corrupted packet
+                    continue;
+                }
+
+                int frameSize = format.getFrameSize();
+                int validBytes = decrypted.length - (decrypted.length % frameSize);
+                if (validBytes > 0) {
+                    speakers.write(decrypted, 0, validBytes);
                 }
             }
 
         } catch (Exception e) {
             if (running) e.printStackTrace();
         } finally {
-            if (ds != null && !ds.isClosed()) ds.close();
+            if (socket != null && !socket.isClosed()) socket.close();
         }
     }
 
-
     public void stopReceive() {
         running = false;
-        if (ds != null && !ds.isClosed()) ds.close();
+        if (socket != null && !socket.isClosed()) socket.close();
     }
 
     public int getPort() {
