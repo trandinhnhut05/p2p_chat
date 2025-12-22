@@ -47,6 +47,7 @@ public class VideoReceiver extends Thread {
 
     @Override
     public void run() {
+
         if (!OpenCVLoader.init()) return;
 
         try {

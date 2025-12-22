@@ -40,7 +40,7 @@ public class CallManager {
         );
 
         activeCalls.put(callId, session);
-        session.startReceiving();
+
     }
 
     // Khi nhận cuộc gọi đến (incoming)
@@ -109,6 +109,7 @@ public class CallManager {
         private VideoReceiver videoReceiver;
         private VoiceSender voiceSender;
         private VoiceReceiver voiceReceiver;
+
 
         public CallSession(Peer remotePeer, String callId,
                            int localVideoPort, int localAudioPort,
@@ -185,11 +186,21 @@ public class CallManager {
         }
 
         public void startReceiving() {
+
             try {
-                if (videoReceiver == null && localVideoPort > 0 && remoteView != null) {
-                    videoReceiver = new VideoReceiver(localVideoPort, keyManager, remoteView, callId);
+
+                if (videoReceiver == null && localVideoPort > 0) {
+                    videoReceiver = new VideoReceiver(
+                            localVideoPort,
+                            keyManager,
+                            remoteView,
+                            callId
+                    );
                     videoReceiver.start();
+
+                    System.out.println("✅ startReceiving() called");
                 }
+
                 if (voiceReceiver == null && localAudioPort > 0) {
                     voiceReceiver = new VoiceReceiver(localAudioPort, keyManager, callId);
                     voiceReceiver.start();
