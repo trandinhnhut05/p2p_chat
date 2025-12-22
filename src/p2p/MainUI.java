@@ -372,13 +372,40 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
 
             alert.showAndWait().ifPresent(btn -> {
                 if (btn == accept) {
-                    callManager.onIncomingCall(peer, callKey, callerVideoPort, callerAudioPort, videoViewRemote);
-                    new Thread(() -> peerClient.sendCallAccept(peer, localVideoPort, localAudioPort, callKey)).start();
+
+                    // 1️⃣ tạo session + startReceiving (nhận video từ caller)
+                    callManager.onIncomingCall(
+                            peer,
+                            callKey,
+                            callerVideoPort,
+                            callerAudioPort,
+                            videoViewRemote
+                    );
+
+                    // 2️⃣ 🔥 START SENDING CHO CALLEE (BẠN)
+                    callManager.onCallAccepted(
+                            peer,
+                            callKey,
+                            callerVideoPort, callerAudioPort, // remote
+                            localVideoPort, localAudioPort,   // local
+                            videoViewLocal                    // preview của bạn
+                    );
+
+                    // 3️⃣ báo cho caller biết port của bạn
+                    new Thread(() ->
+                            peerClient.sendCallAccept(
+                                    peer,
+                                    localVideoPort,
+                                    localAudioPort,
+                                    callKey
+                            )
+                    ).start();
 
                     inCall = true;
                     btnVideoCall.setDisable(true);
                     btnEndVideo.setDisable(false);
-                } else peerClient.sendCallEnd(peer);
+                }
+                else peerClient.sendCallEnd(peer);
             });
         });
     }
