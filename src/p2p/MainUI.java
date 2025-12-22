@@ -15,6 +15,7 @@ import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import p2p.crypto.KeyManager;
 
+import javax.crypto.SecretKey;
 import java.io.File;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -316,6 +317,8 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
 
         currentCallPeer = peer;
         currentCallKey = UUID.randomUUID().toString();
+        // 🔑 Tạo key ngay trên caller
+        SecretKey key = keyManager.getOrCreate(currentCallKey);
 
         // 🔑 Tạo key ngay trên caller
         keyManager.getOrCreate(currentCallKey);
@@ -373,6 +376,9 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
 
                 currentCallPeer = peer;
                 currentCallKey = callKey;
+
+                // 🔑 Tạo key ngay khi nhận call
+                SecretKey key = keyManager.getOrCreate(callKey);
 
                 // 🔑 Tạo/đảm bảo key
                 keyManager.getOrCreate(callKey);

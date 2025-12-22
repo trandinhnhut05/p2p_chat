@@ -140,13 +140,23 @@ public class CallManager {
 
         public void startReceiving() {
             try {
+                // Wait until key exists
+                int tries = 0;
+                while (!keyManager.hasKey(callId) && tries < 10) {
+                    Thread.sleep(50);
+                    tries++;
+                }
+
+                if (!keyManager.hasKey(callId)) {
+                    System.err.println("❌ Cannot start receiver, missing key: " + callId);
+                    return;
+                }
+
                 if (videoReceiver == null && localVideoPort > 0) {
-                    System.out.println("🎥 Starting VideoReceiver on port " + localVideoPort);
                     videoReceiver = new VideoReceiver(localVideoPort, keyManager, videoView, callId);
                     videoReceiver.start();
                 }
                 if (voiceReceiver == null && localAudioPort > 0) {
-                    System.out.println("🎤 Starting VoiceReceiver on port " + localAudioPort);
                     voiceReceiver = new VoiceReceiver(localAudioPort, keyManager, callId);
                     voiceReceiver.start();
                 }
@@ -154,6 +164,7 @@ public class CallManager {
                 e.printStackTrace();
             }
         }
+
 
 
         public void stop() {
