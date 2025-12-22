@@ -40,13 +40,23 @@ public class VideoSender extends Thread {
 
     @Override
     public void run() {
-        if (!OpenCVLoader.init()) return;
+        System.out.println("🎥 VideoSender STARTED -> target="
+                + target.getHostAddress()
+                + ":" + port
+                + " callKey=" + callKey);
+
+        if (!OpenCVLoader.init()) {
+            System.out.println("❌ OpenCV init failed in VideoSender");
+            return;
+        }
 
         VideoCapture cam = new VideoCapture(0);
         if (!cam.isOpened()) {
             System.err.println("❌ Cannot open camera");
             return;
         }
+        System.out.println("📷 Camera opened successfully");
+
 
         try (DatagramSocket socket = new DatagramSocket()) {
             Mat frame = new Mat();

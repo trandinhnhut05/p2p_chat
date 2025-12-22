@@ -78,7 +78,7 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
     public void start(Stage stage) throws Exception {
         localIP = InetAddress.getLocalHost().getHostAddress();
         keyManager = new KeyManager();
-        callManager = new CallManager(keyManager);
+//        callManager = new CallManager(keyManager);
         callManager.setPeerClient(peerClient);
         OpenCVLoader.init();
 
