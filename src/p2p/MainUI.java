@@ -417,7 +417,16 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         if (!inCall || peer != currentCallPeer || !callKey.equals(currentCallKey)) return;
 
         // Cập nhật session với port mà callee nhận video/voice
-        callManager.onCallAccepted(peer, callKey, calleeVideoPort, calleeAudioPort);
+        callManager.onCallAccepted(
+                peer,              // Peer
+                currentCallKey,    // callId
+                calleeVideoPort,   // remoteVideoPort
+                calleeAudioPort,   // remoteAudioPort
+                localVideoPort,    // localVideoPort
+                localAudioPort,    // localAudioPort
+                videoViewLocal     // videoView
+        );
+
 
         // Tạo VideoReceiver/VoiceReceiver ở local nếu chưa tạo
         if (videoReceiver == null) {

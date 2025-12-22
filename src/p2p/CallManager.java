@@ -42,7 +42,7 @@ public class CallManager {
 
         activeCalls.put(callId, session);
 
-        session.startReceiving();
+        session.startReceiving(); // luôn nhận video/voice trước
     }
 
     /* ========== Callee nhận incoming call ========== */
@@ -58,14 +58,19 @@ public class CallManager {
 
         activeCalls.put(callId, session);
 
-        session.startReceiving();
+        session.startReceiving(); // chuẩn bị receiver trước
     }
 
+    /* ========== Khi peer chấp nhận call ========== */
     public void onCallAccepted(Peer fromPeer, String callId,
-                               int remoteVideoPort, int remoteAudioPort) {
+                               int remoteVideoPort, int remoteAudioPort,
+                               int localVideoPort, int localAudioPort,
+                               ImageView localPreview) {
         CallSession session = activeCalls.get(callId);
         if (session != null) {
+            session.setLocalPorts(localVideoPort, localAudioPort);
             session.setRemotePorts(remoteVideoPort, remoteAudioPort);
+            session.setLocalPreview(localPreview);
             session.startSending();
         }
     }
@@ -80,7 +85,7 @@ public class CallManager {
         private final Peer remotePeer;
         private final String callId;
         private final KeyManager keyManager;
-        private final ImageView videoView;
+        private ImageView videoView; // dùng cho local preview hoặc remote view
 
         private int localVideoPort;
         private int localAudioPort;
@@ -89,6 +94,8 @@ public class CallManager {
 
         private VideoSender videoSender;
         private VideoReceiver videoReceiver;
+        private VoiceSender voiceSender;
+        private VoiceReceiver voiceReceiver;
 
         public CallSession(Peer remotePeer, String callId,
                            int localVideoPort, int localAudioPort,
@@ -114,43 +121,58 @@ public class CallManager {
             this.remoteAudioPort = audioPort;
         }
 
+        public void setLocalPreview(ImageView preview) {
+            this.videoView = preview;
+        }
+
+        /* ================= START / SEND ================= */
         public void startSending() {
             try {
-                if (!OpenCVLoader.init()) {
-                    System.err.println("❌ Cannot start sending: OpenCV not loaded");
-                    return;
-                }
                 InetAddress target = remotePeer.getAddress();
-                if (videoSender == null && remoteVideoPort > 0) {
+
+                // VideoSender
+                if (videoSender == null && remoteVideoPort > 0 && videoView != null) {
                     videoSender = new VideoSender(target, remoteVideoPort, keyManager, callId, videoView);
                     videoSender.start();
                 }
-                // Tương tự với VoiceSender nếu có
+
+                // VoiceSender
+                if (voiceSender == null && remoteAudioPort > 0) {
+                    voiceSender = new VoiceSender(target, remoteAudioPort, keyManager, callId);
+                    voiceSender.start();
+                }
+
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
 
+        /* ================= START / RECEIVE ================= */
         public void startReceiving() {
             try {
-                if (!OpenCVLoader.init()) {
-                    System.err.println("❌ Cannot start receiving: OpenCV not loaded");
-                    return;
-                }
-
-                if (videoReceiver == null && localVideoPort > 0) {
+                // VideoReceiver
+                if (videoReceiver == null && localVideoPort > 0 && videoView != null) {
                     videoReceiver = new VideoReceiver(localVideoPort, keyManager, videoView, callId);
                     videoReceiver.start();
                 }
-                // Tương tự với VoiceReceiver nếu có
+
+                // VoiceReceiver
+                if (voiceReceiver == null && localAudioPort > 0) {
+                    voiceReceiver = new VoiceReceiver(localAudioPort, keyManager, callId);
+                    voiceReceiver.start();
+                }
+
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
 
+        /* ================= STOP ================= */
         public void stop() {
             if (videoSender != null) videoSender.stopSend();
             if (videoReceiver != null) videoReceiver.stopReceive();
+            if (voiceSender != null) voiceSender.stopSend();
+            if (voiceReceiver != null) voiceReceiver.stopReceive();
         }
     }
 }

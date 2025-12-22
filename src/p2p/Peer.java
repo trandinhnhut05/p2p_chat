@@ -3,6 +3,7 @@ package p2p;
 import javafx.application.Platform;
 import javafx.scene.image.ImageView;
 
+import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.util.Objects;
 import java.util.UUID;
@@ -24,21 +25,13 @@ public class Peer {
 
     private String callKey;
     private String id;
-    private String ip;
 
-
-
-    public Peer(InetAddress address,
-                int servicePort,
-                String username,
-                String fingerprint) {
-
+    public Peer(InetAddress address, int servicePort, String username, String fingerprint) {
         this.address = address;
         this.servicePort = servicePort;
         this.username = username;
         this.fingerprint = fingerprint;
         this.lastSeen = System.currentTimeMillis();
-
         rebuildId();
     }
 
@@ -49,9 +42,7 @@ public class Peer {
     public void setServicePort(int servicePort) { this.servicePort = servicePort; }
     public String getUsername() { return username; }
     public void setUsername(String username) { this.username = username; }
-    public String getId() {
-        return id;
-    }
+    public String getId() { return id; }
     public long getLastSeen() { return lastSeen; }
     public void updateLastSeen() { this.lastSeen = System.currentTimeMillis(); }
     public String getLastMessage() { return lastMessage; }
@@ -60,17 +51,14 @@ public class Peer {
     public void setVideoPort(int videoPort) { this.videoPort = videoPort; }
     public int getAudioPort() { return audioPort; }
     public void setAudioPort(int audioPort) { this.audioPort = audioPort; }
-    public void setCallKey(String callKey) {
-        this.callKey = callKey;
-    }
+    public String getCallKey() { return callKey; }
+    public void setCallKey(String callKey) { this.callKey = callKey; }
     public String getFingerprint() { return fingerprint; }
 
-
-    public String getCallKey() {
-        return callKey;
+    public void rebuildId() {
+        this.id = address.getHostAddress() + ":" + servicePort;
     }
 
-    /* ========== OVERRIDE ========== */
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -80,10 +68,7 @@ public class Peer {
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(id);
-    }
-
+    public int hashCode() { return Objects.hash(id); }
 
     @Override
     public String toString() {
@@ -106,11 +91,6 @@ public class Peer {
         String msg = "CALL_REQUEST|" + callId + "|" + localVideoPort + "|" + localAudioPort;
         sendMessage(remotePeer, msg);
     }
-    public void rebuildId() {
-        this.id = address.getHostAddress() + ":" + servicePort;
-    }
-
-
 
     /**
      * Gửi phản hồi chấp nhận cuộc gọi
@@ -131,8 +111,13 @@ public class Peer {
                 int remoteVideoPort = Integer.parseInt(parts[2]);
                 int remoteAudioPort = Integer.parseInt(parts[3]);
 
-                Platform.runLater(() -> callManager.onIncomingCall(fromPeer, callId,
-                        remoteVideoPort, remoteAudioPort, remoteVideoView));
+                Platform.runLater(() -> callManager.onIncomingCall(
+                        fromPeer,
+                        callId,
+                        remoteVideoPort,
+                        remoteAudioPort,
+                        remoteVideoView
+                ));
                 break;
 
             case "CALL_ACCEPT":
@@ -140,16 +125,42 @@ public class Peer {
                 int acceptVideoPort = Integer.parseInt(parts[2]);
                 int acceptAudioPort = Integer.parseInt(parts[3]);
 
-                Platform.runLater(() -> callManager.onCallAccepted(fromPeer, callId, acceptVideoPort, acceptAudioPort));
+                // Cấp port local trống để nhận dữ liệu
+                int localVideoPort = getFreePort();
+                int localAudioPort = getFreePort();
+
+                Platform.runLater(() -> callManager.onCallAccepted(
+                        fromPeer,           // peer gửi CALL_ACCEPT
+                        callId,             // callId
+                        acceptVideoPort,    // remoteVideoPort
+                        acceptAudioPort,    // remoteAudioPort
+                        localVideoPort,     // localVideoPort
+                        localAudioPort,     // localAudioPort
+                        remoteVideoView     // ImageView hiển thị video
+                ));
                 break;
         }
     }
 
+    /* ========== UTILS ========== */
+
     /**
-     * Dummy method: gửi message P2P
+     * Dummy method gửi message P2P
      */
     private void sendMessage(Peer remotePeer, String msg) {
-        // TODO: implement gửi message qua socket
+        // TODO: implement gửi message qua socket thật
         System.out.println("Sending to " + remotePeer.getUsername() + ": " + msg);
+    }
+
+    /**
+     * Lấy port trống bất kỳ trên máy
+     */
+    private int getFreePort() {
+        try (DatagramSocket ds = new DatagramSocket(0)) {
+            return ds.getLocalPort();
+        } catch (Exception e) {
+            e.printStackTrace();
+            return -1;
+        }
     }
 }
