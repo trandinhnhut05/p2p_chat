@@ -102,8 +102,13 @@ public class Peer {
 
     /**
      * Xử lý message nhận được
+     * @param msg message nhận được
+     * @param fromPeer peer gửi message
+     * @param remoteVideoView ImageView hiển thị video của peer kia
+     * @param localPreview ImageView hiển thị video local
+     * @param callManager CallManager quản lý cuộc gọi
      */
-    public void onMessageReceived(String msg, Peer fromPeer, ImageView remoteVideoView, CallManager callManager) {
+    public void onMessageReceived(String msg, Peer fromPeer, ImageView remoteVideoView, ImageView localPreview, CallManager callManager) {
         String[] parts = msg.split("\\|");
         switch (parts[0]) {
             case "CALL_REQUEST":
@@ -132,10 +137,9 @@ public class Peer {
                         acceptAudioPort,   // remoteAudioPort
                         localVideoPort,    // localVideoPort
                         localAudioPort,    // localAudioPort
-                        null,              // localPreview (nếu chưa có preview)
+                        localPreview,      // localPreview
                         remoteVideoView    // remoteView
                 ));
-
                 break;
         }
     }

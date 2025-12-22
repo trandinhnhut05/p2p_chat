@@ -326,8 +326,7 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
                 .show();
     }
 
-    /* ================= CALL ================= */
-    // Khi bấm VideoCall
+
     /* ================= CALL ================= */
 // Khi bấm VideoCall
     private void startCall() {
@@ -341,7 +340,10 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         localVideoPort = getFreePort();
         localAudioPort = getFreePort();
 
+        // Tạo session outgoing
         callManager.createOutgoingCall(peer, currentCallKey, localVideoPort, localAudioPort, videoViewLocal);
+
+        // Gửi CALL_REQUEST
         new Thread(() -> peerClient.sendCallRequest(peer, localVideoPort, localAudioPort, currentCallKey)).start();
 
         inCall = true;
@@ -350,8 +352,6 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
     }
 
     // Khi nhận CALL_REQUEST từ peer
-    /* ================= CALL ================= */
-// Khi nhận CALL_REQUEST từ peer
     public void onIncomingCall(Peer peer, String callKey, int callerVideoPort, int callerAudioPort) {
         if (inCall) { peerClient.sendCallEnd(peer); return; }
 
@@ -373,7 +373,7 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
             alert.showAndWait().ifPresent(btn -> {
                 if (btn == accept) {
 
-                    // 1️⃣ tạo session + startReceiving (nhận video từ caller)
+                    // 1️⃣ Tạo session nhận video từ caller
                     callManager.onIncomingCall(
                             peer,
                             callKey,
@@ -382,41 +382,27 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
                             videoViewRemote
                     );
 
-                    // 2️⃣ 🔥 START SENDING CHO CALLEE (BẠN)
-                    // Khi nhận CALL_REQUEST
-                    callManager.onIncomingCall(
+                    // 2️⃣ Gửi CALL_ACCEPT cho caller với port mình nhận
+                    new Thread(() -> peerClient.sendCallAccept(
                             peer,
-                            callKey,
-                            callerVideoPort,
-                            callerAudioPort,
-                            videoViewRemote // hiển thị video từ caller
-                    );
-
-                    // 3️⃣ báo cho caller biết port của bạn
-                    new Thread(() ->
-                            peerClient.sendCallAccept(
-                                    peer,
-                                    localVideoPort,
-                                    localAudioPort,
-                                    callKey
-                            )
-                    ).start();
+                            localVideoPort,
+                            localAudioPort,
+                            callKey
+                    )).start();
 
                     inCall = true;
                     btnVideoCall.setDisable(true);
                     btnEndVideo.setDisable(false);
-                }
-                else peerClient.sendCallEnd(peer);
+                } else peerClient.sendCallEnd(peer);
             });
         });
     }
-
 
     // Khi peer chấp nhận call của mình
     public void onCallAccepted(Peer peer, int calleeVideoPort, int calleeAudioPort, String callKey) {
         if (!inCall || peer != currentCallPeer || !callKey.equals(currentCallKey)) return;
 
-        // Cập nhật session với port mà callee nhận video/voice
+        // Cập nhật session gửi/nhận video
         callManager.onCallAccepted(
                 peer,              // Peer
                 currentCallKey,    // callId
@@ -428,20 +414,14 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
                 videoViewRemote    // remote view
         );
 
-
-
-
-
         System.out.println("📞 Call started with " + peer.getUsername());
     }
-
 
     // Khi kết thúc call
     public void stopCall() {
         if (!inCall) return;
         if (currentCallPeer != null) peerClient.sendCallEnd(currentCallPeer);
 
-        // Delegate cho CallManager
         callManager.endCall(currentCallKey);
 
         inCall = false;
@@ -477,6 +457,8 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
             btnEndVideo.setDisable(true);
         });
     }
+
+
 
 
     /* ================= SERVER CALLBACK ================= */
