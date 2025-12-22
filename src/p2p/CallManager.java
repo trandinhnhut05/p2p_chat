@@ -1,5 +1,6 @@
 package p2p;
 
+import javafx.application.Platform;
 import javafx.scene.image.ImageView;
 import p2p.crypto.KeyManager;
 
@@ -89,7 +90,10 @@ public class CallManager {
 
 
             session.startReceiving();
-            session.startSending();
+            new Thread(() -> {
+                try { Thread.sleep(250); } catch (InterruptedException ignored) {}
+                session.startSending();
+            }).start();
         } else {
             System.out.println("❌ session == null");
         }
@@ -219,12 +223,17 @@ public class CallManager {
 
 
         public void startReceiving() {
-
             try {
 
                 if (videoReceiver == null
                         && localVideoPort > 0
                         && remoteView != null) {
+
+                    // 🔥 FIX QUAN TRỌNG: đảm bảo ImageView ready
+                    Platform.runLater(() -> {
+                        remoteView.setImage(null);
+                        remoteView.setVisible(true);
+                    });
 
                     videoReceiver = new VideoReceiver(
                             localVideoPort,
@@ -237,7 +246,6 @@ public class CallManager {
                     System.out.println("🎥 VideoReceiver started on port " + localVideoPort);
                 }
 
-
                 if (voiceReceiver == null && localAudioPort > 0) {
                     voiceReceiver = new VoiceReceiver(localAudioPort, keyManager, callId);
                     voiceReceiver.start();
@@ -246,6 +254,7 @@ public class CallManager {
                 e.printStackTrace();
             }
         }
+
 
         public void stop() {
             if (videoSender != null) videoSender.stopSend();

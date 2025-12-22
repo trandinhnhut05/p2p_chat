@@ -79,7 +79,7 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         localIP = InetAddress.getLocalHost().getHostAddress();
         keyManager = new KeyManager();
         callManager = new CallManager(keyManager);
-        callManager.setPeerClient(peerClient);
+        peerClient = null;
         OpenCVLoader.init();
 
         settingsStore = new SettingsStore();
@@ -353,7 +353,7 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         // Gửi CALL_REQUEST
         new Thread(() -> peerClient.sendCallRequest(peer, localVideoPort, localAudioPort, currentCallKey)).start();
 
-        inCall = true;
+
         btnVideoCall.setDisable(true);
         btnEndVideo.setDisable(false);
     }
@@ -407,7 +407,9 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
 
     // Khi peer chấp nhận call của mình
     public void onCallAccepted(Peer peer, int calleeVideoPort, int calleeAudioPort, String callKey) {
-        if (!inCall || peer != currentCallPeer || !callKey.equals(currentCallKey)) return;
+
+        if (inCall || peer != currentCallPeer || !callKey.equals(currentCallKey)) return;
+        inCall = true;
 
         // Cập nhật session gửi/nhận video
         callManager.onCallAccepted(
