@@ -117,27 +117,14 @@ public class PeerHandler implements Runnable {
     /* ================= CALL ================= */
     private void handleCallRequest(DataInputStream dis) throws Exception {
         String callKey = dis.readUTF();
-        peer.setCallKey(callKey);
-
         int callerVideoPort = dis.readInt();
         int callerAudioPort = dis.readInt();
 
-        // Tạo local ports để gửi dữ liệu
-        int localVideoPort = PeerServer.findAvailablePort(7000);
-        int localAudioPort = PeerServer.findAvailablePort(8000);
-        peer.setVideoPort(localVideoPort);
-        peer.setAudioPort(localAudioPort);
-
-        Platform.runLater(() -> {
-            mainUI.onIncomingCall(peer, callKey, callerVideoPort, callerAudioPort);
-
-            // Gửi CALL_ACCEPT kèm callKey, localVideoPort, localAudioPort
-            new Thread(() ->
-                    callManager.getPeerClient().sendCallAccept(peer, localVideoPort, localAudioPort, callKey)
-            ).start();
-        });
-
+        Platform.runLater(() ->
+                mainUI.onIncomingCall(peer, callKey, callerVideoPort, callerAudioPort)
+        );
     }
+
 
 //    private void handleCallAccept(DataInputStream dis) throws Exception {
 //        String callKey = dis.readUTF();

@@ -22,17 +22,12 @@ public class CallManager {
         this.peerClient = peerClient;
     }
 
-    public PeerClient getPeerClient() {
-        return peerClient;
-    }
-
-    /* ========== Caller tạo outgoing call ========== */
     public void createOutgoingCall(Peer remotePeer, String callId,
                                    int localVideoPort, int localAudioPort,
                                    ImageView localPreview) {
 
-        remotePeer.setVideoPort(localVideoPort);
-        remotePeer.setAudioPort(localAudioPort);
+//        remotePeer.setVideoPort(localVideoPort);
+//        remotePeer.setAudioPort(localAudioPort);
 
         keyManager.getOrCreate(callId);
 
@@ -42,10 +37,9 @@ public class CallManager {
 
         activeCalls.put(callId, session);
 
-        session.startReceiving(); // luôn nhận video/voice trước
+//        session.startReceiving();
     }
 
-    /* ========== Callee nhận incoming call ========== */
     public void onIncomingCall(Peer fromPeer, String callId,
                                int remoteVideoPort, int remoteAudioPort,
                                ImageView remoteView) {
@@ -58,20 +52,23 @@ public class CallManager {
 
         activeCalls.put(callId, session);
 
-        session.startReceiving(); // chuẩn bị receiver trước
+        session.startReceiving();
     }
 
-    /* ========== Khi peer chấp nhận call ========== */
     public void onCallAccepted(Peer fromPeer, String callId,
                                int remoteVideoPort, int remoteAudioPort,
                                int localVideoPort, int localAudioPort,
                                ImageView localPreview) {
+
         CallSession session = activeCalls.get(callId);
         if (session != null) {
             session.setLocalPorts(localVideoPort, localAudioPort);
             session.setRemotePorts(remoteVideoPort, remoteAudioPort);
             session.setLocalPreview(localPreview);
             session.startSending();
+
+            // ✅ DUY NHẤT Ở ĐÂY
+            session.startReceiving();
         }
     }
 
@@ -80,12 +77,11 @@ public class CallManager {
         if (session != null) session.stop();
     }
 
-    /* ===================== CallSession ===================== */
     private static class CallSession {
         private final Peer remotePeer;
         private final String callId;
         private final KeyManager keyManager;
-        private ImageView videoView; // dùng cho local preview hoặc remote view
+        private ImageView videoView;
 
         private int localVideoPort;
         private int localAudioPort;
@@ -125,18 +121,15 @@ public class CallManager {
             this.videoView = preview;
         }
 
-        /* ================= START / SEND ================= */
         public void startSending() {
             try {
                 InetAddress target = remotePeer.getAddress();
 
-                // VideoSender
                 if (videoSender == null && remoteVideoPort > 0 && videoView != null) {
                     videoSender = new VideoSender(target, remoteVideoPort, keyManager, callId, videoView);
                     videoSender.start();
                 }
 
-                // VoiceSender
                 if (voiceSender == null && remoteAudioPort > 0) {
                     voiceSender = new VoiceSender(target, remoteAudioPort, keyManager, callId);
                     voiceSender.start();
@@ -147,16 +140,13 @@ public class CallManager {
             }
         }
 
-        /* ================= START / RECEIVE ================= */
         public void startReceiving() {
             try {
-                // VideoReceiver
                 if (videoReceiver == null && localVideoPort > 0 && videoView != null) {
                     videoReceiver = new VideoReceiver(localVideoPort, keyManager, videoView, callId);
                     videoReceiver.start();
                 }
 
-                // VoiceReceiver
                 if (voiceReceiver == null && localAudioPort > 0) {
                     voiceReceiver = new VoiceReceiver(localAudioPort, keyManager, callId);
                     voiceReceiver.start();
@@ -167,7 +157,6 @@ public class CallManager {
             }
         }
 
-        /* ================= STOP ================= */
         public void stop() {
             if (videoSender != null) videoSender.stopSend();
             if (videoReceiver != null) videoReceiver.stopReceive();

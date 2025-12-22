@@ -110,7 +110,6 @@ public class Peer {
                 String callId = parts[1];
                 int remoteVideoPort = Integer.parseInt(parts[2]);
                 int remoteAudioPort = Integer.parseInt(parts[3]);
-
                 Platform.runLater(() -> callManager.onIncomingCall(
                         fromPeer,
                         callId,
@@ -124,23 +123,21 @@ public class Peer {
                 callId = parts[1];
                 int acceptVideoPort = Integer.parseInt(parts[2]);
                 int acceptAudioPort = Integer.parseInt(parts[3]);
-
-                // Cấp port local trống để nhận dữ liệu
                 int localVideoPort = getFreePort();
                 int localAudioPort = getFreePort();
-
                 Platform.runLater(() -> callManager.onCallAccepted(
-                        fromPeer,           // peer gửi CALL_ACCEPT
-                        callId,             // callId
-                        acceptVideoPort,    // remoteVideoPort
-                        acceptAudioPort,    // remoteAudioPort
-                        localVideoPort,     // localVideoPort
-                        localAudioPort,     // localAudioPort
-                        remoteVideoView     // ImageView hiển thị video
+                        fromPeer,       // peer gửi CALL_ACCEPT
+                        callId,         // callId
+                        acceptVideoPort,// remoteVideoPort
+                        acceptAudioPort,// remoteAudioPort
+                        localVideoPort, // localVideoPort
+                        localAudioPort, // localAudioPort
+                        remoteVideoView // ImageView hiển thị video
                 ));
                 break;
         }
     }
+
 
     /* ========== UTILS ========== */
 
