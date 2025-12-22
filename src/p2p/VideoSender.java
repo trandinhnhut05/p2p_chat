@@ -16,19 +16,20 @@ import java.net.InetAddress;
 
 public class VideoSender extends Thread {
 
-    private static final int CHUNK_SIZE = 1400;
-    private static final int FRAME_WIDTH = 320;
-    private static final int FRAME_HEIGHT = 240;
+    private static final int CHUNK_SIZE = 1300;
+    private static final int WIDTH = 320;
+    private static final int HEIGHT = 240;
 
     private final InetAddress target;
     private final int port;
     private final KeyManager keyManager;
     private final String callKey;
+
     private volatile boolean running = true;
+    private short frameId = 0;
 
-    static { System.loadLibrary("opencv_java4120"); }
-
-    public VideoSender(InetAddress target, int port, KeyManager keyManager, String callKey) {
+    public VideoSender(InetAddress target, int port,
+                       KeyManager keyManager, String callKey) {
         this.target = target;
         this.port = port;
         this.keyManager = keyManager;
@@ -37,45 +38,74 @@ public class VideoSender extends Thread {
 
     @Override
     public void run() {
-        VideoCapture camera = new VideoCapture(0, Videoio.CAP_DSHOW);
-        if (!camera.isOpened()) { System.err.println("❌ Cannot open camera"); return; }
+        VideoCapture cam = new VideoCapture(0, Videoio.CAP_DSHOW);
+        if (!cam.isOpened()) {
+            System.err.println("❌ Cannot open camera");
+            return;
+        }
 
         try (DatagramSocket socket = new DatagramSocket()) {
             Mat frame = new Mat();
 
             while (running) {
-                camera.read(frame);
+                SecretKey key = keyManager.getOrCreate(callKey);
+                if (key == null) {
+                    Thread.sleep(50);
+                    continue;
+                }
+
+                if (key == null) {
+                    Thread.sleep(50);
+                    continue;
+                }
+
+                cam.read(frame);
                 if (frame.empty()) continue;
 
-                Imgproc.resize(frame, frame, new Size(FRAME_WIDTH, FRAME_HEIGHT));
-                MatOfByte buffer = new MatOfByte();
-                Imgcodecs.imencode(".jpg", frame, buffer);
-                byte[] rawFrame = buffer.toArray();
+                Imgproc.resize(frame, frame, new Size(WIDTH, HEIGHT));
 
-                SecretKey aes = keyManager.getOrCreate(callKey);
+                MatOfByte jpg = new MatOfByte();
+                Imgcodecs.imencode(".jpg", frame, jpg);
+                byte[] raw = jpg.toArray();
+
                 IvParameterSpec iv = CryptoUtils.generateIv();
-                byte[] encrypted = CryptoUtils.encryptAES(rawFrame, aes, iv);
+                byte[] encrypted = CryptoUtils.encryptAES(raw, key, iv);
 
                 byte[] payload = new byte[16 + encrypted.length];
                 System.arraycopy(iv.getIV(), 0, payload, 0, 16);
                 System.arraycopy(encrypted, 0, payload, 16, encrypted.length);
 
                 int totalChunks = (int) Math.ceil(payload.length / (double) CHUNK_SIZE);
+                frameId++;
+
                 for (int i = 0; i < totalChunks; i++) {
-                    int offset = i * CHUNK_SIZE;
-                    int len = Math.min(CHUNK_SIZE, payload.length - offset);
-                    byte[] chunk = new byte[len + 2];
-                    chunk[0] = (byte) i;
-                    chunk[1] = (byte) totalChunks;
-                    System.arraycopy(payload, offset, chunk, 2, len);
-                    socket.send(new DatagramPacket(chunk, chunk.length, target, port));
+                    int off = i * CHUNK_SIZE;
+                    int len = Math.min(CHUNK_SIZE, payload.length - off);
+
+                    byte[] packet = new byte[6 + len];
+                    packet[0] = (byte) (frameId >> 8);
+                    packet[1] = (byte) frameId;
+                    packet[2] = (byte) i;
+                    packet[3] = (byte) totalChunks;
+                    packet[4] = (byte) (len >> 8);
+                    packet[5] = (byte) len;
+
+                    System.arraycopy(payload, off, packet, 6, len);
+
+                    socket.send(new DatagramPacket(packet, packet.length, target, port));
                 }
 
                 Thread.sleep(40); // ~25 FPS
             }
-        } catch (Exception e) { e.printStackTrace(); }
-        finally { camera.release(); }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            cam.release();
+        }
     }
 
-    public void stopSend() { running = false; interrupt(); }
+    public void stopSend() {
+        running = false;
+        interrupt();
+    }
 }

@@ -75,6 +75,7 @@ public class PeerHandler implements Runnable {
                             Platform.runLater(() -> mainUI.stopCallFromRemote(peer));
                     case "FILE" -> handleFile();
                 }
+
             }
 
 
@@ -135,13 +136,13 @@ public class PeerHandler implements Runnable {
         }
 
         peer.setCallKey(callKey);
-        peer.setVideoPort(dis.readInt());
-        peer.setAudioPort(dis.readInt());
+
+        int videoPort = dis.readInt();
+        int audioPort = dis.readInt();
 
         Platform.runLater(() ->
-                mainUI.startCallFromRemote(peer, peer.getVideoPort(), peer.getAudioPort())
+                mainUI.onCallAccepted(peer, videoPort, audioPort)
         );
-
     }
 
 

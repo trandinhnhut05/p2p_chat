@@ -84,6 +84,7 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         keyManager = new KeyManager();
         callManager = new CallManager(keyManager);
         settingsStore = new SettingsStore();
+        OpenCVLoader.init();
 
         // ========== UI ========== //
         TextField txtName = new TextField(username);

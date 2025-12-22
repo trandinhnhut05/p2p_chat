@@ -20,20 +20,18 @@ public class VideoReceiver extends Thread {
     private final int port;
     private final KeyManager keyManager;
     private final ImageView imageView;
-    private volatile boolean running = true;
-
-    private byte[][] chunks;
-    private int receivedChunks = 0;
-    private int expectedChunks = -1;
-    private DatagramSocket socket;
     private final String callKey;
 
-    static { System.loadLibrary("opencv_java4120"); }
+    private volatile boolean running = true;
+    private DatagramSocket socket;
 
-    public VideoReceiver(int port, KeyManager keyManager, ImageView imageView, String callKey) {
-        if (port <= 0 || port > 65535) {
-            throw new IllegalArgumentException("Invalid video port: " + port);
-        }
+    private byte[][] chunks;
+    private int received = 0;
+    private int expected = -1;
+    private short currentFrame = -1;
+
+    public VideoReceiver(int port, KeyManager keyManager,
+                         ImageView imageView, String callKey) {
         this.port = port;
         this.keyManager = keyManager;
         this.imageView = imageView;
@@ -44,47 +42,62 @@ public class VideoReceiver extends Thread {
     public void run() {
         try {
             socket = new DatagramSocket(port);
-            byte[] buffer = new byte[1500];
+            byte[] buf = new byte[1500];
 
             while (running) {
-                DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
-                socket.receive(packet);
+                DatagramPacket pkt = new DatagramPacket(buf, buf.length);
+                socket.receive(pkt);
 
-                int index = packet.getData()[0] & 0xFF;
-                int total = packet.getData()[1] & 0xFF;
+                byte[] data = pkt.getData();
 
-                if (chunks == null || expectedChunks != total) {
+                short frameId = (short) (((data[0] & 0xFF) << 8) | (data[1] & 0xFF));
+                int index = data[2] & 0xFF;
+                int total = data[3] & 0xFF;
+                int len = ((data[4] & 0xFF) << 8) | (data[5] & 0xFF);
+
+                if (frameId != currentFrame) {
+                    currentFrame = frameId;
                     chunks = new byte[total][];
-                    receivedChunks = 0;
-                    expectedChunks = total;
+                    received = 0;
+                    expected = total;
                 }
 
-                byte[] data = Arrays.copyOfRange(packet.getData(), 2, packet.getLength());
-                chunks[index] = data;
-                receivedChunks++;
+                if (chunks[index] == null) {
+                    chunks[index] = Arrays.copyOfRange(data, 6, 6 + len);
+                    received++;
+                }
 
-                if (receivedChunks == expectedChunks) {
-                    int size = Arrays.stream(chunks).mapToInt(a -> a.length).sum();
+                if (received == expected) {
+                    int size = Arrays.stream(chunks).mapToInt(b -> b.length).sum();
                     byte[] full = new byte[size];
                     int pos = 0;
-                    for (byte[] c : chunks) { System.arraycopy(c, 0, full, pos, c.length); pos += c.length; }
+                    for (byte[] c : chunks) {
+                        System.arraycopy(c, 0, full, pos, c.length);
+                        pos += c.length;
+                    }
 
-                    byte[] ivBytes = Arrays.copyOfRange(full, 0, 16);
-                    byte[] encrypted = Arrays.copyOfRange(full, 16, full.length);
+                    if (!keyManager.hasKey(callKey)) {
+                        return;
+                    }
 
-                    SecretKey aes = keyManager.getOrCreate(callKey);
-                    byte[] decrypted = CryptoUtils.decryptAES(encrypted, aes, new IvParameterSpec(ivBytes));
+                    SecretKey key = keyManager.getOrCreate(callKey);
 
-                    Mat img = Imgcodecs.imdecode(new MatOfByte(decrypted), Imgcodecs.IMREAD_COLOR);
+                    if (key != null) {
+                        byte[] iv = Arrays.copyOfRange(full, 0, 16);
+                        byte[] enc = Arrays.copyOfRange(full, 16, full.length);
 
-                    if (!img.empty()) {
-                        Image fxImg = matToImage(img);
-                        Platform.runLater(() -> imageView.setImage(fxImg));
+                        byte[] raw = CryptoUtils.decryptAES(enc, key, new IvParameterSpec(iv));
+                        Mat img = Imgcodecs.imdecode(new MatOfByte(raw), Imgcodecs.IMREAD_COLOR);
+
+                        if (!img.empty()) {
+                            Image fx = matToImage(img);
+                            Platform.runLater(() -> imageView.setImage(fx));
+                        }
                     }
 
                     chunks = null;
-                    receivedChunks = 0;
-                    expectedChunks = -1;
+                    received = 0;
+                    expected = -1;
                 }
             }
         } catch (Exception e) {
