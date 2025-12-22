@@ -344,23 +344,16 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         localVideoPort = getFreePort();
         localAudioPort = getFreePort();
 
-        // Tạo session outgoing
-        callManager.createOutgoingCall(
-                peer,
-                currentCallKey,
-                localVideoPort,
-                localAudioPort,
-                videoViewLocal   // ✔ CHỈ local preview
-        );
+// Tạo session outgoing
+        callManager.createOutgoingCall(peer, currentCallKey, localVideoPort, localAudioPort, videoViewLocal);
 
-
-        // Gửi CALL_REQUEST
+// Gửi CALL_REQUEST
         new Thread(() -> peerClient.sendCallRequest(peer, localVideoPort, localAudioPort, currentCallKey)).start();
-
 
         inCall = true;
         btnVideoCall.setDisable(true);
         btnEndVideo.setDisable(false);
+
 
     }
 
@@ -374,10 +367,13 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         localVideoPort = getFreePort();
         localAudioPort = getFreePort();
 
+        callManager.onIncomingCall(peer, callKey, callerVideoPort, callerAudioPort, videoViewRemote);
+
+// Show dialog
         Platform.runLater(() -> {
             Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
             alert.setTitle("Incoming Call");
-            alert.setHeaderText("📞 Call from " + peer.getUsername());
+            alert.setHeaderText("Call from " + peer.getUsername());
             alert.setContentText("Accept?");
             ButtonType accept = new ButtonType("Accept");
             ButtonType reject = new ButtonType("Reject");
@@ -385,38 +381,23 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
 
             alert.showAndWait().ifPresent(btn -> {
                 if (btn == accept) {
+                    // 🔥 Start sending video/voice sau khi accept
+                    CallManager.CallSession session = callManager.getSession(callKey);
+                    if (session != null) {
+                        session.setLocalPorts(localVideoPort, localAudioPort);
+                        new Thread(session::startSending).start();
+                    }
 
-                    Platform.runLater(() -> {
-                        videoViewRemote.setVisible(true);
-                        videoViewRemote.setImage(null);
-                    });
-
-                    // 1️⃣ Tạo session + START RECEIVER NGAY
-                    callManager.onIncomingCall(
-                            peer,
-                            callKey,
-                            callerVideoPort,
-                            callerAudioPort,
-                            videoViewRemote
-                    );
-
-                    // 🟢 Delay nhỏ để đảm bảo socket bind xong
-                    Executors.newSingleThreadScheduledExecutor().schedule(() -> {
-                        peerClient.sendCallAccept(
-                                peer,
-                                localVideoPort,
-                                localAudioPort,
-                                callKey
-                        );
-                    }, 50, TimeUnit.MILLISECONDS);
+                    // Gửi CALL_ACCEPT tới caller
+                    new Thread(() -> peerClient.sendCallAccept(peer, localVideoPort, localAudioPort, callKey)).start();
 
                     inCall = true;
                     btnVideoCall.setDisable(true);
                     btnEndVideo.setDisable(false);
-                }
-                else peerClient.sendCallEnd(peer);
+                } else peerClient.sendCallEnd(peer);
             });
         });
+
     }
 
     // Khi peer chấp nhận call của mình
