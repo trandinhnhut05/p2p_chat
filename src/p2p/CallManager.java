@@ -29,33 +29,24 @@ public class CallManager {
         return peerClient;
     }
 
-    /**
-     * Caller tạo session outgoing call
-     */
+    /** Caller tạo session outgoing call */
     public void createOutgoingCall(Peer remotePeer, String callId,
                                    int localVideoPort, int localAudioPort,
                                    ImageView localVideoView) {
 
-        // Gán port cho peer
-        remotePeer.setVideoPort(localVideoPort);
-        remotePeer.setAudioPort(localAudioPort);
-
-        // Tạo key ngay khi bắt đầu call
         keyManager.getOrCreate(callId);
 
         CallSession session = new CallSession(remotePeer, callId,
-                localVideoPort, localAudioPort, 0, 0,
-                keyManager, localVideoView);
+                localVideoPort, localAudioPort,
+                0, 0, keyManager, localVideoView);
 
         activeCalls.put(callId, session);
 
-        // Receiver luôn start trước để nhận UDP
+        // Luôn start receiver trước sender
         session.startReceiving();
     }
 
-    /**
-     * Callee nhận incoming call
-     */
+    /** Callee nhận incoming call */
     public void onIncomingCall(Peer fromPeer, String callId,
                                int remoteVideoPort, int remoteAudioPort,
                                ImageView remoteVideoView) {
@@ -63,8 +54,7 @@ public class CallManager {
         keyManager.getOrCreate(callId);
 
         CallSession session = new CallSession(fromPeer, callId,
-                0, 0, // local ports sẽ được set sau
-                remoteVideoPort, remoteAudioPort,
+                0, 0, remoteVideoPort, remoteAudioPort,
                 keyManager, remoteVideoView);
 
         activeCalls.put(callId, session);
@@ -73,8 +63,10 @@ public class CallManager {
         session.startReceiving();
     }
 
+    /** Khi peer gửi CALL_ACCEPT */
     public void onCallAccepted(Peer fromPeer, String callId,
                                int remoteVideoPort, int remoteAudioPort) {
+
         CallSession session = activeCalls.get(callId);
         if (session != null) {
             session.setRemotePorts(remoteVideoPort, remoteAudioPort);
@@ -87,6 +79,7 @@ public class CallManager {
         if (session != null) session.stop();
     }
 
+    /** ==================== CallSession ==================== */
     private static class CallSession {
         private final Peer remotePeer;
         private final String callId;
@@ -127,6 +120,7 @@ public class CallManager {
             this.remoteAudioPort = audioPort;
         }
 
+        /** Start sender để gửi dữ liệu tới remote peer */
         public void startSending() {
             try {
                 InetAddress target = remotePeer.getAddress();
@@ -143,6 +137,7 @@ public class CallManager {
             }
         }
 
+        /** Start receiver để nhận dữ liệu từ remote peer */
         public void startReceiving() {
             try {
                 int tries = 0;
@@ -150,7 +145,6 @@ public class CallManager {
                     Thread.sleep(50);
                     tries++;
                 }
-
                 if (!keyManager.hasKey(callId)) {
                     System.err.println("❌ Cannot start receiver, missing key: " + callId);
                     return;
@@ -164,16 +158,18 @@ public class CallManager {
                     voiceReceiver = new VoiceReceiver(localAudioPort, keyManager, callId);
                     voiceReceiver.start();
                 }
+
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
 
+        /** Stop tất cả sender + receiver */
         public void stop() {
-            if (videoSender != null) videoSender.stopSend();
-            if (voiceSender != null) voiceSender.stopSend();
-            if (videoReceiver != null) videoReceiver.stopReceive();
-            if (voiceReceiver != null) voiceReceiver.stopReceive();
+            if (videoSender != null) { videoSender.stopSend(); videoSender = null; }
+            if (voiceSender != null) { voiceSender.stopSend(); voiceSender = null; }
+            if (videoReceiver != null) { videoReceiver.stopReceive(); videoReceiver = null; }
+            if (voiceReceiver != null) { voiceReceiver.stopReceive(); voiceReceiver = null; }
         }
     }
 }

@@ -117,36 +117,39 @@ public class PeerHandler implements Runnable {
     /* ================= CALL ================= */
     private void handleCallRequest(DataInputStream dis) throws Exception {
         String callKey = dis.readUTF();
-
-        // 🔑 Tạo key ngay nếu chưa có
-        if (!keyManager.hasKey(callKey)) {
-            keyManager.getOrCreate(callKey);
-        }
-
         peer.setCallKey(callKey);
 
-        int remoteVideoPort = dis.readInt();
-        int remoteAudioPort = dis.readInt();
+        int callerVideoPort = dis.readInt();
+        int callerAudioPort = dis.readInt();
 
-        // Khởi tạo local ports
+        // Tạo local ports để gửi dữ liệu
         int localVideoPort = PeerServer.findAvailablePort(7000);
         int localAudioPort = PeerServer.findAvailablePort(8000);
-
         peer.setVideoPort(localVideoPort);
         peer.setAudioPort(localAudioPort);
 
         Platform.runLater(() -> {
-            mainUI.onIncomingCall(peer, callKey, remoteVideoPort, remoteAudioPort);
+            mainUI.onIncomingCall(peer, callKey, callerVideoPort, callerAudioPort);
 
             // Gửi CALL_ACCEPT với local ports
             callManager.getPeerClient().sendCallAccept(peer, localVideoPort, localAudioPort);
         });
     }
 
+//    private void handleCallAccept(DataInputStream dis) throws Exception {
+//        String callKey = dis.readUTF();
+//        peer.setCallKey(callKey);
+//
+//        int remoteVideoPort = dis.readInt();
+//        int remoteAudioPort = dis.readInt();
+//
+//        Platform.runLater(() -> mainUI.onCallAccepted(peer, remoteVideoPort, remoteAudioPort));
+//    }
+
+
     private void handleCallAccept(DataInputStream dis) throws Exception {
         String callKey = dis.readUTF();
 
-        // 🔑 Tạo key ngay nếu chưa có
         if (!keyManager.hasKey(callKey)) {
             keyManager.getOrCreate(callKey);
         }
@@ -156,8 +159,10 @@ public class PeerHandler implements Runnable {
         int remoteVideoPort = dis.readInt();
         int remoteAudioPort = dis.readInt();
 
+        // Delegate lên MainUI
         Platform.runLater(() -> mainUI.onCallAccepted(peer, remoteVideoPort, remoteAudioPort));
     }
+
 
     /* ================= FILE ================= */
     private void handleFile(DataInputStream dis) {
