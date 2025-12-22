@@ -341,7 +341,14 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         localAudioPort = getFreePort();
 
         // Tạo session outgoing
-        callManager.createOutgoingCall(peer, currentCallKey, localVideoPort, localAudioPort, videoViewLocal);
+        callManager.createOutgoingCall(
+                peer,
+                currentCallKey,
+                localVideoPort,
+                localAudioPort,
+                videoViewLocal   // ✔ CHỈ local preview
+        );
+
 
         // Gửi CALL_REQUEST
         new Thread(() -> peerClient.sendCallRequest(peer, localVideoPort, localAudioPort, currentCallKey)).start();
