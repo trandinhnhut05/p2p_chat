@@ -7,6 +7,8 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.io.EOFException;
+
 
 /**
  * PeerHandler
@@ -64,7 +66,13 @@ public class PeerHandler implements Runnable {
 
             /* ===== REAL TYPE ===== */
             while (true) {
-                String type = dis.readUTF();
+                String type;
+                try {
+                    type = dis.readUTF();
+                } catch (EOFException eof) {
+                    System.out.println("🔌 Peer disconnected: " + peer.getUsername());
+                    break; // 👈 RẤT QUAN TRỌNG
+                }
 
                 switch (type) {
                     case "SESSION_KEY" -> handleSessionKey(dis);
