@@ -8,17 +8,19 @@ import javax.crypto.spec.IvParameterSpec;
 import javax.sound.sampled.*;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.util.concurrent.ArrayBlockingQueue;
 
 public class VoiceReceiver extends Thread {
 
-    private int port;
+    private final int port;
     private final KeyManager keyManager;
     private final String callKey;
     private volatile boolean running = true;
     private DatagramSocket socket;
 
-    private static final int AUDIO_PAYLOAD = 640; // 20ms @ 16kHz, 16bit mono
+    private static final int AUDIO_PAYLOAD = 640; // 20ms @16kHz mono 16bit
     private static final int IV_SIZE = 16;
+    private final ArrayBlockingQueue<byte[]> audioQueue = new ArrayBlockingQueue<>(50);
 
     public VoiceReceiver(int port, KeyManager keyManager, String callKey) {
         this.port = port;
@@ -28,46 +30,51 @@ public class VoiceReceiver extends Thread {
 
     @Override
     public void run() {
-        try {
-            AudioFormat format = new AudioFormat(16000, 16, 1, true, true);
-            DataLine.Info info = new DataLine.Info(SourceDataLine.class, format);
+        AudioFormat format = new AudioFormat(16000, 16, 1, true, true);
+        try (DatagramSocket ds = new DatagramSocket(port);
+             SourceDataLine speakers = AudioSystem.getSourceDataLine(format)) {
 
-            socket = new DatagramSocket(port);
-            System.out.println("🎧 VoiceReceiver listening on port " + port);
+            socket = ds;
+            speakers.open(format);
+            speakers.start();
 
-            try (SourceDataLine speakers = (SourceDataLine) AudioSystem.getLine(info)) {
-                speakers.open(format);
-                speakers.start();
-
-                byte[] buffer = new byte[AUDIO_PAYLOAD + IV_SIZE];
-
-                while (running) {
-                    DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
-                    socket.receive(packet);
-
-                    if (!keyManager.hasKey(callKey)) continue;
-                    if (packet.getLength() <= IV_SIZE) continue;
-
-                    byte[] ivBytes = new byte[IV_SIZE];
-                    System.arraycopy(packet.getData(), 0, ivBytes, 0, IV_SIZE);
-                    byte[] encrypted = new byte[packet.getLength() - IV_SIZE];
-                    System.arraycopy(packet.getData(), IV_SIZE, encrypted, 0, encrypted.length);
-
-                    SecretKey key = keyManager.getSessionKey(callKey);
-                    if (key == null) continue;
-
-                    byte[] decrypted;
-                    try {
-                        decrypted = CryptoUtils.decryptAES(encrypted, key, new IvParameterSpec(ivBytes));
-                    } catch (Exception e) {
-                        continue;
+            // Thread phụ để playback liên tục
+            Thread playback = new Thread(() -> {
+                try {
+                    while (running) {
+                        byte[] data = audioQueue.take();
+                        speakers.write(data, 0, data.length);
                     }
+                } catch (InterruptedException ignored) {}
+            });
+            playback.start();
 
-                    int frameSize = format.getFrameSize();
-                    int validBytes = decrypted.length - (decrypted.length % frameSize);
-                    if (validBytes > 0) speakers.write(decrypted, 0, validBytes);
-                }
+            byte[] buffer = new byte[AUDIO_PAYLOAD + IV_SIZE];
+
+            while (running) {
+                DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+                socket.receive(packet);
+
+                if (!keyManager.hasKey(callKey) || packet.getLength() <= IV_SIZE) continue;
+
+                byte[] iv = new byte[IV_SIZE];
+                System.arraycopy(packet.getData(), 0, iv, 0, IV_SIZE);
+                byte[] encrypted = new byte[packet.getLength() - IV_SIZE];
+                System.arraycopy(packet.getData(), IV_SIZE, encrypted, 0, encrypted.length);
+
+                SecretKey key = keyManager.getSessionKey(callKey);
+                if (key == null) continue;
+
+                try {
+                    byte[] decrypted = CryptoUtils.decryptAES(encrypted, key, new IvParameterSpec(iv));
+                    // bỏ frame không đủ
+                    if (decrypted.length >= AUDIO_PAYLOAD) {
+                        audioQueue.offer(decrypted);
+                    }
+                } catch (Exception ignored) {}
             }
+
+            playback.interrupt();
 
         } catch (Exception e) {
             if (running) e.printStackTrace();
@@ -79,5 +86,6 @@ public class VoiceReceiver extends Thread {
     public void stopReceive() {
         running = false;
         if (socket != null && !socket.isClosed()) socket.close();
+        interrupt();
     }
 }

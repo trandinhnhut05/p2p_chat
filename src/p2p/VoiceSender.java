@@ -18,10 +18,9 @@ public class VoiceSender extends Thread {
     private final String callKey;
     private volatile boolean running = true;
 
-    private static final int BUFFER_SIZE = 640;
+    private static final int BUFFER_SIZE = 640; // 20ms @16kHz
 
-    public VoiceSender(InetAddress target, int port,
-                       KeyManager keyManager, String callKey) {
+    public VoiceSender(InetAddress target, int port, KeyManager keyManager, String callKey) {
         this.target = target;
         this.port = port;
         this.keyManager = keyManager;
@@ -30,31 +29,32 @@ public class VoiceSender extends Thread {
 
     @Override
     public void run() {
-        try {
-            AudioFormat format = new AudioFormat(16000, 16, 1, true, true);
-            DataLine.Info info = new DataLine.Info(TargetDataLine.class, format);
+        AudioFormat format = new AudioFormat(16000, 16, 1, true, true);
+        try (DatagramSocket ds = new DatagramSocket();
+             TargetDataLine mic = (TargetDataLine) AudioSystem.getLine(new DataLine.Info(TargetDataLine.class, format))) {
 
-            try (DatagramSocket ds = new DatagramSocket();
-                 TargetDataLine microphone = (TargetDataLine) AudioSystem.getLine(info)) {
+            mic.open(format);
+            mic.start();
+            byte[] buffer = new byte[BUFFER_SIZE];
 
-                microphone.open(format);
-                microphone.start();
-                byte[] buffer = new byte[BUFFER_SIZE];
+            while (running) {
+                int read = mic.read(buffer, 0, buffer.length);
+                if (read <= 0) continue;
 
-                while (running) {
-                    int n = microphone.read(buffer, 0, buffer.length);
-                    if (n <= 0) continue;
+                // Nếu key chưa tạo → skip frame
+                SecretKey key = keyManager.getOrCreate(callKey);
+                if (key == null) continue;
 
-                    SecretKey key = keyManager.getOrCreate(callKey);
-                    IvParameterSpec iv = CryptoUtils.generateIv();
-                    byte[] encrypted = CryptoUtils.encryptAES(buffer, key, iv);
+                IvParameterSpec iv = CryptoUtils.generateIv();
+                byte[] encrypted = CryptoUtils.encryptAES(buffer, key, iv);
 
-                    byte[] sendData = new byte[iv.getIV().length + encrypted.length];
-                    System.arraycopy(iv.getIV(), 0, sendData, 0, iv.getIV().length);
-                    System.arraycopy(encrypted, 0, sendData, iv.getIV().length, encrypted.length);
+                byte[] sendData = new byte[iv.getIV().length + encrypted.length];
+                System.arraycopy(iv.getIV(), 0, sendData, 0, iv.getIV().length);
+                System.arraycopy(encrypted, 0, sendData, iv.getIV().length, encrypted.length);
 
-                    ds.send(new DatagramPacket(sendData, sendData.length, target, port));
-                }
+                ds.send(new DatagramPacket(sendData, sendData.length, target, port));
+
+                Thread.sleep(20); // đảm bảo rate ổn định ~50FPS
             }
 
         } catch (Exception e) {
