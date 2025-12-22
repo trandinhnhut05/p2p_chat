@@ -310,22 +310,23 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
     }
 
     /* ================= CALL ================= */
-    // Caller bắt đầu call
-    public void startCall() {
+    // Khi bấm VideoCall
+    private void startCall() {
         Peer peer = tblPeers.getSelectionModel().getSelectedItem();
         if (peer == null) { alert("Select a peer to call"); return; }
+        if (inCall) { alert("Already in a call"); return; }
 
         currentCallPeer = peer;
         currentCallKey = UUID.randomUUID().toString();
 
-        // Ports local
+        // ports local
         localVideoPort = getFreePort();
         localAudioPort = getFreePort();
 
-        // Tạo session + receiver & sender
+        // Tạo session 2 chiều
         callManager.createOutgoingCall(peer, currentCallKey, localVideoPort, localAudioPort, videoViewLocal);
 
-        // Gửi CALL_REQUEST + local ports
+        // Gửi CALL_REQUEST kèm port
         new Thread(() -> peerClient.sendCallRequest(peer, localVideoPort, localAudioPort, currentCallKey)).start();
 
         inCall = true;
@@ -333,22 +334,24 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         btnEndVideo.setDisable(false);
     }
 
-    // Callee nhận call
+    // Khi nhận CALL_REQUEST
     public void onIncomingCall(Peer peer, String callKey, int callerVideoPort, int callerAudioPort) {
         if (inCall) { peerClient.sendCallEnd(peer); return; }
 
         currentCallPeer = peer;
         currentCallKey = callKey;
 
-        // Tạo ports local để gửi & nhận
+        // ports local để gửi + nhận
         localVideoPort = getFreePort();
         localAudioPort = getFreePort();
 
-        // Khởi tạo 2 chiều: receiver (nhận video caller), sender (gửi video của mình)
+        // 1️⃣ tạo receiver remote video
         callManager.onIncomingCall(peer, callKey, callerVideoPort, callerAudioPort, videoViewRemote);
+
+        // 2️⃣ tạo sender gửi video/voice local
         callManager.createOutgoingCall(peer, callKey, localVideoPort, localAudioPort, videoViewLocal);
 
-        // Gửi CALL_ACCEPT với local ports
+        // 3️⃣ gửi CALL_ACCEPT với local ports
         peerClient.sendCallAccept(peer, localVideoPort, localAudioPort);
 
         inCall = true;
@@ -356,26 +359,30 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         btnEndVideo.setDisable(false);
     }
 
-
-
-
-
-
-
-
+    // Khi peer chấp nhận call
     public void onCallAccepted(Peer peer, int calleeVideoPort, int calleeAudioPort) {
         if (!inCall || peer != currentCallPeer) return;
 
-        System.out.println("📥 Call accepted by " + peer.getUsername() +
-                " videoPort=" + calleeVideoPort + " audioPort=" + calleeAudioPort);
-
-        // Sender gửi dữ liệu đến peer
-        voiceSender = new VoiceSender(peer.getAddress(), calleeAudioPort, keyManager, currentCallKey);
-        voiceSender.start();
-
-        videoSender = new VideoSender(peer.getAddress(), calleeVideoPort, keyManager, currentCallKey, videoViewLocal);
-        videoSender.start();
+        // Set remote ports cho session và start sender
+        callManager.onCallAccepted(peer, currentCallKey, calleeVideoPort, calleeAudioPort);
     }
+
+
+
+
+//    public void onCallAccepted(Peer peer, int calleeVideoPort, int calleeAudioPort) {
+//        if (!inCall || peer != currentCallPeer) return;
+//
+//        System.out.println("📥 Call accepted by " + peer.getUsername() +
+//                " videoPort=" + calleeVideoPort + " audioPort=" + calleeAudioPort);
+//
+//        // Sender gửi dữ liệu đến peer
+//        voiceSender = new VoiceSender(peer.getAddress(), calleeAudioPort, keyManager, currentCallKey);
+//        voiceSender.start();
+//
+//        videoSender = new VideoSender(peer.getAddress(), calleeVideoPort, keyManager, currentCallKey, videoViewLocal);
+//        videoSender.start();
+//    }
 
 
     public void stopCall() {
