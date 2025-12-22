@@ -19,6 +19,11 @@ import java.net.InetAddress;
 
 public class VideoSender extends Thread {
 
+    static {
+        // Load OpenCV native library
+        System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
+    }
+
     private static final int CHUNK_SIZE = 1300;
     private static final int WIDTH = 320;
     private static final int HEIGHT = 240;
@@ -66,15 +71,18 @@ public class VideoSender extends Thread {
                     copy.release();
                 }
 
+                // Encode JPEG
                 MatOfByte jpg = new MatOfByte();
                 Imgcodecs.imencode(".jpg", frame, jpg);
                 byte[] raw = jpg.toArray();
 
-                byte[] encrypted = CryptoUtils.encryptAES(raw, key, CryptoUtils.generateIv());
-                IvParameterSpec iv = CryptoUtils.generateIv();
+                // 🔑 Generate IV ONCE per frame
+                IvParameterSpec ivSpec = CryptoUtils.generateIv();
+                byte[] encrypted = CryptoUtils.encryptAES(raw, key, ivSpec);
 
+                // Prepare payload = IV + encrypted
                 byte[] payload = new byte[16 + encrypted.length];
-                System.arraycopy(iv.getIV(), 0, payload, 0, 16);
+                System.arraycopy(ivSpec.getIV(), 0, payload, 0, 16);
                 System.arraycopy(encrypted, 0, payload, 16, encrypted.length);
 
                 int totalChunks = (int) Math.ceil(payload.length / (double) CHUNK_SIZE);
@@ -96,16 +104,19 @@ public class VideoSender extends Thread {
                     socket.send(new DatagramPacket(packet, packet.length, target, port));
                 }
 
-                Thread.sleep(40);
+                Thread.sleep(40); // ~25 fps
             }
 
-        } catch (Exception e) { e.printStackTrace(); }
-        finally { cam.release(); }
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            cam.release();
+        }
     }
 
     private Image matToImage(Mat frame) {
         MatOfByte buffer = new MatOfByte();
-        Imgcodecs.imencode(".png", frame, buffer);
+        Imgcodecs.imencode(".jpg", frame, buffer);
         return new Image(new ByteArrayInputStream(buffer.toArray()));
     }
 
