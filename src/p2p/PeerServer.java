@@ -35,18 +35,19 @@ public class PeerServer extends Thread {
     @Override
     public void run() {
         try {
-            serverSocket = new ServerSocket(port);
+            serverSocket = new ServerSocket();
+            serverSocket.setReuseAddress(true);
+            serverSocket.bind(new java.net.InetSocketAddress(port));
 
             while (running.get()) {
                 Socket socket = serverSocket.accept();
                 acceptPool.execute(() -> listener.onNewConnection(socket));
             }
         } catch (IOException e) {
-            if (running.get()) {
-                e.printStackTrace();
-            }
+            if (running.get()) e.printStackTrace();
         }
     }
+
 
     public void shutdown() {
         running.set(false);

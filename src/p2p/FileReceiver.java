@@ -29,7 +29,14 @@ public class FileReceiver implements Runnable {
     public void run() {
         try (DataInputStream dis = new DataInputStream(socket.getInputStream())) {
 
+            String cmd = dis.readUTF();
+            if (!"FILE".equals(cmd)) {
+                System.err.println("Invalid command: " + cmd);
+                return;
+            }
+
             String fileName = dis.readUTF();
+
 
             // ===== READ IV =====
             int ivLen = dis.readInt();

@@ -194,16 +194,48 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
 
     /* ================= NETWORK ================= */
     private void startNetwork() {
-        String localPeerId = username + "@" + localIP;
+        String localPeerId = username + "@" + localIP + ":" + servicePort;
+
+        // Kiểm tra TCP port có sẵn không
+        try (DatagramSocket ds = new DatagramSocket(servicePort)) {
+            ds.close(); // chỉ check
+        } catch (Exception e) {
+            alert("Port " + servicePort + " đang được sử dụng! Chọn port khác.");
+            return;
+        }
+
         peerClient = new PeerClient(keyManager, localPeerId, servicePort, username);
 
-        discoveryListener = new PeerDiscoveryListener(servicePort, discoveryPort);
+        // Listener UDP để nhận peer discovery
+        discoveryListener = new PeerDiscoveryListener(servicePort, discoveryPort) {
+            @Override
+            public List<Peer> snapshot() {
+                List<Peer> peers = super.snapshot();
+
+                // Lọc trùng đúng cả username + port để test 1 máy nhiều instance
+                boolean hasConflict = peers.stream()
+                        .anyMatch(p -> p.getUsername().equals(username) && p.getServicePort() == servicePort);
+
+                if (hasConflict) {
+                    Platform.runLater(() -> alert("⚠️ Phát hiện trùng username và port trong mạng!"));
+                }
+
+                peers.removeIf(p -> p.getUsername().equals(username) && p.getServicePort() == servicePort);
+
+                return peers;
+            }
+        };
         discoveryListener.start();
+
+        // Sender UDP
         discoverySender = new PeerDiscoverySender(username, servicePort, discoveryPort);
         discoverySender.start();
+
+        // Server TCP
         peerServer = new PeerServer(servicePort, this);
         peerServer.start();
 
+        // UI refresher
         uiRefresher = Executors.newSingleThreadScheduledExecutor();
         uiRefresher.scheduleAtFixedRate(() -> {
             List<Peer> snap = discoveryListener.snapshot();
@@ -212,7 +244,10 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
                 tblPeers.refresh();
             });
         }, 0, 1, TimeUnit.SECONDS);
+
+        System.out.println("🟢 Network started on " + localIP + ":" + servicePort + " username=" + username);
     }
+
 
     private void stopNetwork() {
         if (discoverySender != null) discoverySender.shutdown();
@@ -252,7 +287,16 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         File f = fc.showOpenDialog(stage);
         if (f == null) return;
 
-        new Thread(() -> FileSender.sendFile(p, f, keyManager)).start();
+        new Thread(() ->
+                FileSender.sendFile(
+                        p,
+                        f,
+                        keyManager,
+                        username,      // 🔥 username của MainUI
+                        servicePort    // 🔥 servicePort của MainUI
+                )
+        ).start();
+
         txtChat.appendText("[YOU -> " + p.getUsername() + "] [file] " + f.getName() + "\n");
     }
 
@@ -262,6 +306,7 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
                 .show();
     }
 
+    /* ================= CALL ================= */
     /* ================= CALL ================= */
     /* ================= CALL ================= */
     private void startCall() {
@@ -278,35 +323,25 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         currentCallPeer = peer;
         currentCallKey = UUID.randomUUID().toString();
 
-        // ✅ PORT MÌNH LISTEN
+        // 🔑 Tạo key ngay trên caller
+        keyManager.getOrCreate(currentCallKey);
+
+        // PORT listen của mình
         localVideoPort = getFreePort();
         localAudioPort = getFreePort();
 
-        // 1️⃣ GỬI CALL_REQUEST (báo peer gửi media vào port này)
-        new Thread(() ->
-                peerClient.sendCallRequest(
-                        peer,
-                        localVideoPort,
-                        localAudioPort,
-                        currentCallKey
-                )
-        ).start();
-
-        // 2️⃣ RECEIVER (luôn start trước)
-        videoReceiver = new VideoReceiver(
-                localVideoPort,
-                keyManager,
-                videoViewRemote,
-                currentCallKey
-        );
+        // Receiver luôn start trước
+        videoReceiver = new VideoReceiver(localVideoPort, keyManager, videoViewRemote, currentCallKey);
         videoReceiver.start();
 
-        voiceReceiver = new VoiceReceiver(
-                localAudioPort,
-                keyManager,
-                currentCallKey
-        );
+        voiceReceiver = new VoiceReceiver(localAudioPort, keyManager, currentCallKey);
         voiceReceiver.start();
+
+        // Gửi CALL_REQUEST kèm key và port của mình
+        new Thread(() -> {
+            System.out.println("📤 Sending CALL_REQUEST to " + peer.getUsername() + " key=" + currentCallKey);
+            peerClient.sendCallRequest(peer, localVideoPort, localAudioPort, currentCallKey);
+        }).start();
 
         inCall = true;
         btnVideoCall.setDisable(true);
@@ -315,114 +350,91 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         System.out.println("📤 CALL_REQUEST sent to " + peer.getUsername());
     }
 
+    public void onIncomingCall(Peer peer, String callKey, int callerVideoPort, int callerAudioPort) {
+        System.out.println("📥 Incoming call request from " + peer.getUsername() + " key=" + callKey);
 
-
-    public void onIncomingCall(
-            Peer peer,
-            String callKey,
-            int callerVideoPort,
-            int callerAudioPort
-    ) {
         if (inCall) {
+            Platform.runLater(() -> alert("⛔ Bận call. Không thể nhận cuộc gọi từ " + peer.getUsername()));
             peerClient.sendCallEnd(peer);
             return;
         }
 
-        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
-        alert.setTitle("Incoming Call");
-        alert.setHeaderText("📞 " + peer.getUsername());
-        alert.setContentText("Accept call?");
-        ButtonType accept = new ButtonType("Accept");
-        ButtonType reject = new ButtonType("Reject");
-        alert.getButtonTypes().setAll(accept, reject);
+        // Nếu cùng key đang tồn tại (trùng session)
+        if (callKey.equals(currentCallKey)) {
+            Platform.runLater(() -> alert("⚠️ Phát hiện trùng callKey với cuộc gọi hiện tại!"));
+            peerClient.sendCallEnd(peer);
+            return;
+        }
 
-        alert.showAndWait().ifPresent(btn -> {
-            if (btn != accept) {
-                peerClient.sendCallEnd(peer);
-                return;
-            }
+        Platform.runLater(() -> {
+            Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+            alert.setTitle("Incoming Call");
+            alert.setHeaderText("📞 " + peer.getUsername());
+            alert.setContentText("Accept call?");
+            ButtonType accept = new ButtonType("Accept");
+            ButtonType reject = new ButtonType("Reject");
+            alert.getButtonTypes().setAll(accept, reject);
 
-            currentCallPeer = peer;
-            currentCallKey = callKey;
+            alert.showAndWait().ifPresent(btn -> {
+                if (btn != accept) {
+                    peerClient.sendCallEnd(peer);
+                    return;
+                }
 
-            // ✅ PORT MÌNH LISTEN
-            localVideoPort = getFreePort();
-            localAudioPort = getFreePort();
+                System.out.println("✅ Call accepted from " + peer.getUsername());
 
-            // 1️⃣ RECEIVER (nhận từ caller)
-            videoReceiver = new VideoReceiver(
-                    localVideoPort,
-                    keyManager,
-                    videoViewRemote,
-                    currentCallKey
-            );
-            videoReceiver.start();
+                currentCallPeer = peer;
+                currentCallKey = callKey;
 
-            voiceReceiver = new VoiceReceiver(
-                    localAudioPort,
-                    keyManager,
-                    currentCallKey
-            );
-            voiceReceiver.start();
+                keyManager.getOrCreate(callKey);
 
-            // 2️⃣ SEND CALL_ACCEPT (báo caller gửi vào port mình)
-            peerClient.sendCallAccept(
-                    peer,
-                    localVideoPort,
-                    localAudioPort
-            );
+                // PORT callee
+                localVideoPort = getFreePort();
+                localAudioPort = getFreePort();
 
-            // 3️⃣ SENDER (gửi vào port caller)
-            videoSender = new VideoSender(
-                    peer.getAddress(),
-                    callerVideoPort,
-                    keyManager,
-                    currentCallKey
-            );
-            videoSender.start();
+                videoReceiver = new VideoReceiver(localVideoPort, keyManager, videoViewRemote, currentCallKey);
+                videoReceiver.start();
+                voiceReceiver = new VoiceReceiver(localAudioPort, keyManager, currentCallKey);
+                voiceReceiver.start();
 
-            voiceSender = new VoiceSender(
-                    peer.getAddress(),
-                    callerAudioPort,
-                    keyManager,
-                    currentCallKey
-            );
-            voiceSender.start();
+                peerClient.sendCallAccept(peer, localVideoPort, localAudioPort);
 
-            inCall = true;
-            btnVideoCall.setDisable(true);
-            btnEndVideo.setDisable(false);
+                videoSender = new VideoSender(peer.getAddress(), callerVideoPort, keyManager, currentCallKey);
+                videoSender.start();
+                voiceSender = new VoiceSender(peer.getAddress(), callerAudioPort, keyManager, currentCallKey);
+                voiceSender.start();
 
-            System.out.println("📞 Call accepted from " + peer.getUsername());
+                inCall = true;
+                btnVideoCall.setDisable(true);
+                btnEndVideo.setDisable(false);
+            });
         });
     }
 
 
 
 
-    public void onCallAccepted(
-            Peer peer,
-            int calleeVideoPort,
-            int calleeAudioPort
-    ) {
+
+
+
+
+    public void onCallAccepted(Peer peer, int calleeVideoPort, int calleeAudioPort) {
+        // Chỉ xử lý khi đang gọi và đúng peer
         if (!inCall || peer != currentCallPeer) return;
 
-        // 🚀 SENDER: gửi media vào port peer
-        videoSender = new VideoSender(
-                peer.getAddress(),
-                calleeVideoPort,
-                keyManager,
-                currentCallKey
-        );
+        System.out.println("📥 Call accepted by " + peer.getUsername() +
+                " (videoPort=" + calleeVideoPort + ", audioPort=" + calleeAudioPort + ")");
+
+        // Sender tới peer
+        videoSender = new VideoSender(peer.getAddress(), calleeVideoPort, keyManager, currentCallKey);
         videoSender.start();
 
-        voiceSender = new VoiceSender(
-                peer.getAddress(),
-                calleeAudioPort,
-                keyManager,
-                currentCallKey
-        );
+        voiceSender = new VoiceSender(peer.getAddress(), calleeAudioPort, keyManager, currentCallKey);
         voiceSender.start();
+
+        inCall = true;
+        btnVideoCall.setDisable(true);
+        btnEndVideo.setDisable(false);
 
         System.out.println("📞 Call started with " + peer.getUsername());
     }
@@ -440,11 +452,25 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
 
     private void stopCallInternal() {
         try {
-            if (voiceSender != null) { voiceSender.stopSend(); voiceSender = null; }
-            if (voiceReceiver != null) { voiceReceiver.stopReceive(); voiceReceiver = null; }
-            if (videoSender != null) { videoSender.stopSend(); videoSender = null; }
-            if (videoReceiver != null) { videoReceiver.stopReceive(); videoReceiver = null; }
-        } catch (Exception e) { e.printStackTrace(); }
+            if (voiceSender != null) {
+                voiceSender.stopSend();
+                voiceSender = null;
+            }
+            if (voiceReceiver != null) {
+                voiceReceiver.stopReceive();
+                voiceReceiver = null;
+            }
+            if (videoSender != null) {
+                videoSender.stopSend();
+                videoSender = null;
+            }
+            if (videoReceiver != null) {
+                videoReceiver.stopReceive();
+                videoReceiver = null;
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
 
         Platform.runLater(() -> {
             videoViewLocal.setImage(null);
@@ -457,6 +483,8 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         currentCallKey = null;
         currentCallId = null;
         inCall = false;
+
+        System.out.println("📴 Call stopped");
     }
 
 
@@ -498,12 +526,8 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
 
     /* ================= SERVER CALLBACK ================= */
     public void onNewConnection(Socket socket) {
-        Peer peer = new Peer(
-                socket.getInetAddress(),
-                0,
-                "Unknown",
-                socket.getInetAddress().getHostAddress()
-        );
+        // ⚠️ Peer sẽ được hoàn thiện sau HELLO
+        Peer peer = new Peer(socket.getInetAddress(), 0, "", "");
 
         new Thread(
                 new PeerHandler(socket, peer, keyManager, settingsStore, this, callManager)
@@ -511,11 +535,16 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
     }
 
 
-    public void onIncomingMessage(Peer peer, String message) {
-        txtChat.appendText(peer.getUsername() + ": " + message + "\n");
+
+    public void onIncomingMessage(Peer peer, String msg) {
+        txtChat.appendText(peer.getUsername() + ": " + msg);
+
         ChatWindow cw = openChats.get(peer.getId());
-        if (cw != null) cw.appendIncoming(peer.getUsername(), message);
+        if (cw != null) {
+            cw.appendIncoming(peer.getUsername(), msg);
+        }
     }
+
 
 //    public void onIncomingCall(Peer peer, String callId, int peerVideoPort, int peerAudioPort) {
 //        if (inCall) {

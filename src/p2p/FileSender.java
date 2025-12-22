@@ -16,12 +16,24 @@ import java.nio.file.Files;
  */
 public class FileSender {
 
-    public static void sendFile(Peer peer, File file, KeyManager keyManager) {
+    public static void sendFile(
+            Peer peer,
+            File file,
+            KeyManager keyManager,
+            String myUsername,
+            int myServicePort
+    ) {
         try (Socket socket = new Socket(peer.getAddress(), peer.getServicePort());
              DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
 
-            // ===== HEADER =====
+            // ===== HELLO =====
+            dos.writeUTF("HELLO");
+            dos.writeUTF(myUsername);      // 🔥 username của MÌNH
+            dos.writeInt(myServicePort);   // 🔥 port server của MÌNH
+
+            // ===== TYPE =====
             dos.writeUTF("FILE");
+            dos.writeUTF(peer.getId());   // keyId
             dos.writeUTF(file.getName());
 
             // ===== READ FILE =====
@@ -40,10 +52,11 @@ public class FileSender {
             dos.write(encrypted);
             dos.flush();
 
-            System.out.println("Sent encrypted file: " + file.getName());
+            System.out.println("📤 File sent: " + file.getName());
 
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 }
+

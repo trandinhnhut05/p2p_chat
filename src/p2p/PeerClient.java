@@ -215,6 +215,13 @@ public class PeerClient {
     /* ================= FILE ================= */
 
     public void sendFile(Peer peer, File file) {
-        FileSender.sendFile(peer, file, keyManager);
+        FileSender.sendFile(
+                peer,
+                file,
+                keyManager,
+                localUsername,     // 🔥 QUAN TRỌNG
+                localServicePort   // 🔥 QUAN TRỌNG
+        );
     }
+
 }
