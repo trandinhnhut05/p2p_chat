@@ -96,17 +96,16 @@ public class PeerClient {
 
     /* ================= CALL ================= */
 
-    public void sendCallRequest(Peer peer,
-                                int localVideoPortSend,
-                                int localAudioPortSend,
-                                int localVideoPortRecv,
-                                int localAudioPortRecv,
-                                String callKey) { // <-- thêm tham số callKey
-
+    public void sendCallRequest(
+            Peer peer,
+            int localVideoRecvPort,
+            int localAudioRecvPort,
+            String callKey
+    ) {
         peer.setCallKey(callKey);
 
         try {
-            // Gửi session key nếu chưa có
+            // 1️⃣ đảm bảo session key cho call
             if (!keyManager.hasKey(callKey)) {
                 SecretKey key = keyManager.getOrCreate(callKey);
 
@@ -119,24 +118,17 @@ public class PeerClient {
                     dos.write(key.getEncoded());
                     dos.flush();
                 }
-
-                if (!keyManager.hasKey(callKey)) {
-                    System.err.println("❌ Failed to store call key");
-                    return;
-                }
             }
 
-            // Gửi CALL_REQUEST với cả port gửi + port nhận
+            // 2️⃣ gửi CALL_REQUEST (chỉ gửi port mình LISTEN)
             try (Socket socket = new Socket(peer.getAddress(), peer.getServicePort());
                  DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
 
                 sendHello(dos);
                 dos.writeUTF("CALL_REQUEST");
                 dos.writeUTF(callKey);
-                dos.writeInt(localVideoPortSend); // Video gửi
-                dos.writeInt(localAudioPortSend); // Audio gửi
-                dos.writeInt(localVideoPortRecv); // Video nhận
-                dos.writeInt(localAudioPortRecv); // Audio nhận
+                dos.writeInt(localVideoRecvPort);
+                dos.writeInt(localAudioRecvPort);
                 dos.flush();
             }
 
@@ -144,6 +136,7 @@ public class PeerClient {
             e.printStackTrace();
         }
     }
+
 
 
     private void ensureSessionKeyOnRemote(Peer peer, String keyId) throws Exception {

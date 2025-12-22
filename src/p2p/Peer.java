@@ -23,13 +23,23 @@ public class Peer {
     private int audioPort = 7000; // default
 
     private String callKey;
+    private String id;
+    private String ip;
 
-    public Peer(InetAddress address, int servicePort, String username, String fingerprint) {
+
+
+    public Peer(InetAddress address,
+                int servicePort,
+                String username,
+                String fingerprint) {
+
         this.address = address;
         this.servicePort = servicePort;
         this.username = username;
         this.fingerprint = fingerprint;
         this.lastSeen = System.currentTimeMillis();
+
+        rebuildId();
     }
 
     /* ========== GETTERS / SETTERS ========== */
@@ -39,7 +49,9 @@ public class Peer {
     public void setServicePort(int servicePort) { this.servicePort = servicePort; }
     public String getUsername() { return username; }
     public void setUsername(String username) { this.username = username; }
-    public String getId() { return fingerprint; }
+    public String getId() {
+        return id;
+    }
     public long getLastSeen() { return lastSeen; }
     public void updateLastSeen() { this.lastSeen = System.currentTimeMillis(); }
     public String getLastMessage() { return lastMessage; }
@@ -51,6 +63,8 @@ public class Peer {
     public void setCallKey(String callKey) {
         this.callKey = callKey;
     }
+    public String getFingerprint() { return fingerprint; }
+
 
     public String getCallKey() {
         return callKey;
@@ -62,11 +76,14 @@ public class Peer {
         if (this == o) return true;
         if (!(o instanceof Peer)) return false;
         Peer peer = (Peer) o;
-        return Objects.equals(fingerprint, peer.fingerprint);
+        return Objects.equals(id, peer.id);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(fingerprint); }
+    public int hashCode() {
+        return Objects.hash(id);
+    }
+
 
     @Override
     public String toString() {
@@ -89,6 +106,11 @@ public class Peer {
         String msg = "CALL_REQUEST|" + callId + "|" + localVideoPort + "|" + localAudioPort;
         sendMessage(remotePeer, msg);
     }
+    public void rebuildId() {
+        this.id = address.getHostAddress() + ":" + servicePort;
+    }
+
+
 
     /**
      * Gửi phản hồi chấp nhận cuộc gọi

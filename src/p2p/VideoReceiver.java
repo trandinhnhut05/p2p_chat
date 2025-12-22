@@ -31,6 +31,9 @@ public class VideoReceiver extends Thread {
     static { System.loadLibrary("opencv_java4120"); }
 
     public VideoReceiver(int port, KeyManager keyManager, ImageView imageView, String callKey) {
+        if (port <= 0 || port > 65535) {
+            throw new IllegalArgumentException("Invalid video port: " + port);
+        }
         this.port = port;
         this.keyManager = keyManager;
         this.imageView = imageView;

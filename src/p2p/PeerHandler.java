@@ -54,45 +54,46 @@ public class PeerHandler implements Runnable {
             peer.setUsername(dis.readUTF());
             peer.setServicePort(dis.readInt());
 
+            // 🔥 BẮT BUỘC: rebuild lại ID peer
+            peer.rebuildId();
+
+
             System.out.println("👋 HELLO from " + peer.getUsername()
                     + " servicePort=" + peer.getServicePort());
 
             /* ===== REAL TYPE ===== */
-            String type = dis.readUTF();
+            while (true) {
+                String type = dis.readUTF();
 
-            switch (type) {
-
-                case "SESSION_KEY" -> {
-                    String keyId = dis.readUTF();
-                    byte[] keyBytes = new byte[16];
-                    dis.readFully(keyBytes);
-
-                    keyManager.storeSessionKey(keyId, keyBytes);
-                    System.out.println("🔐 Session key stored: " + keyId);
-
-                    // 🔹 gửi ACK để peer biết đã nhận key
-                    DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
-                    dos.writeUTF("SESSION_KEY_ACK");
-                    dos.flush();
+                switch (type) {
+                    case "SESSION_KEY" -> handleSessionKey(dis);
+                    case "MSG" -> handleMessage(dis);
+                    case "CALL_REQUEST" -> handleCallRequest(dis);
+                    case "CALL_ACCEPT" -> handleCallAccept(dis);
+                    case "CALL_END" ->
+                            Platform.runLater(() -> mainUI.stopCallFromRemote(peer));
+                    case "FILE" -> handleFile();
                 }
-
-
-                case "MSG" -> handleMessage(dis);
-
-                case "CALL_REQUEST" -> handleCallRequest(dis);
-
-                case "CALL_ACCEPT" -> handleCallAccept(dis);
-
-                case "CALL_END" ->
-                        Platform.runLater(() ->
-                                mainUI.stopCallFromRemote(peer));
-
-                case "FILE" -> handleFile();
             }
+
 
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+    private void handleSessionKey(DataInputStream dis) throws Exception {
+        String keyId = dis.readUTF();
+
+        byte[] keyBytes = new byte[16];
+        dis.readFully(keyBytes);
+
+        keyManager.storeSessionKey(keyId, keyBytes);
+        System.out.println("🔐 Session key stored: " + keyId);
+
+        // gửi ACK
+        DataOutputStream dos = new DataOutputStream(socket.getOutputStream());
+        dos.writeUTF("SESSION_KEY_ACK");
+        dos.flush();
     }
 
     private void handleCallRequest(DataInputStream dis) throws Exception {
