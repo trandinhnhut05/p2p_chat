@@ -9,6 +9,7 @@ import java.util.Map;
 
 /**
  * Quản lý các session call P2P video/audio
+ * Hỗ trợ 2 chiều: gửi và nhận video/voice đồng thời
  */
 public class CallManager {
 
@@ -59,17 +60,16 @@ public class CallManager {
                                int remoteVideoPort, int remoteAudioPort,
                                ImageView remoteVideoView) {
 
-        // 🔑 Tạo key ngay khi nhận request
         keyManager.getOrCreate(callId);
 
         CallSession session = new CallSession(fromPeer, callId,
-                fromPeer.getVideoPort(), fromPeer.getAudioPort(),
+                0, 0, // local ports sẽ được set sau
                 remoteVideoPort, remoteAudioPort,
                 keyManager, remoteVideoView);
 
         activeCalls.put(callId, session);
 
-        // Receiver luôn start trước sender
+        // Chỉ start receiver trước sender
         session.startReceiving();
     }
 
@@ -78,7 +78,7 @@ public class CallManager {
         CallSession session = activeCalls.get(callId);
         if (session != null) {
             session.setRemotePorts(remoteVideoPort, remoteAudioPort);
-            session.startSending();   // Sender start khi call accepted
+            session.startSending();
         }
     }
 
@@ -90,12 +90,13 @@ public class CallManager {
     private static class CallSession {
         private final Peer remotePeer;
         private final String callId;
-        private final int localVideoPort;
-        private final int localAudioPort;
-        private int remoteVideoPort;
-        private int remoteAudioPort;
         private final KeyManager keyManager;
         private final ImageView videoView;
+
+        private int localVideoPort;
+        private int localAudioPort;
+        private int remoteVideoPort;
+        private int remoteAudioPort;
 
         private VideoSender videoSender;
         private VideoReceiver videoReceiver;
@@ -114,6 +115,11 @@ public class CallManager {
             this.remoteAudioPort = remoteAudioPort;
             this.keyManager = keyManager;
             this.videoView = videoView;
+        }
+
+        public void setLocalPorts(int videoPort, int audioPort) {
+            this.localVideoPort = videoPort;
+            this.localAudioPort = audioPort;
         }
 
         public void setRemotePorts(int videoPort, int audioPort) {
@@ -139,7 +145,6 @@ public class CallManager {
 
         public void startReceiving() {
             try {
-                // Wait until key exists
                 int tries = 0;
                 while (!keyManager.hasKey(callId) && tries < 20) {
                     Thread.sleep(50);
