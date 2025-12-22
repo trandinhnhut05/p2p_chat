@@ -45,8 +45,10 @@ public class CallManager {
 
         activeCalls.put(callId, session);
 
+        // Receiver luôn start trước để nhận UDP
         session.startReceiving();
     }
+
 
     public void onIncomingCall(Peer fromPeer, String callId,
                                int remoteVideoPort, int remoteAudioPort,
@@ -59,9 +61,11 @@ public class CallManager {
 
         activeCalls.put(callId, session);
 
+        // Receiver luôn start trước
         session.startReceiving();
-        session.startSending();
+        // Sender sẽ start sau khi gửi CALL_ACCEPT (được gọi ở MainUI.onIncomingCall)
     }
+
 
 
     public void onCallAccepted(Peer fromPeer, String callId,
@@ -69,10 +73,12 @@ public class CallManager {
         CallSession session = activeCalls.get(callId);
         if (session != null) {
             session.setRemotePorts(remoteVideoPort, remoteAudioPort);
+            // Sender + Receiver
             session.startSending();
             session.startReceiving();
         }
     }
+
 
     public void endCall(String callId) {
         CallSession session = activeCalls.remove(callId);
@@ -117,10 +123,12 @@ public class CallManager {
             try {
                 InetAddress target = remotePeer.getAddress();
                 if (videoSender == null && remoteVideoPort > 0) {
+                    System.out.println("🎥 Starting VideoSender to " + target + ":" + remoteVideoPort);
                     videoSender = new VideoSender(target, remoteVideoPort, keyManager, callId, videoView);
                     videoSender.start();
                 }
                 if (voiceSender == null && remoteAudioPort > 0) {
+                    System.out.println("🎤 Starting VoiceSender to " + target + ":" + remoteAudioPort);
                     voiceSender = new VoiceSender(target, remoteAudioPort, keyManager, callId);
                     voiceSender.start();
                 }
@@ -129,13 +137,16 @@ public class CallManager {
             }
         }
 
+
         public void startReceiving() {
             try {
                 if (videoReceiver == null && localVideoPort > 0) {
+                    System.out.println("🎥 Starting VideoReceiver on port " + localVideoPort);
                     videoReceiver = new VideoReceiver(localVideoPort, keyManager, videoView, callId);
                     videoReceiver.start();
                 }
                 if (voiceReceiver == null && localAudioPort > 0) {
+                    System.out.println("🎤 Starting VoiceReceiver on port " + localAudioPort);
                     voiceReceiver = new VoiceReceiver(localAudioPort, keyManager, callId);
                     voiceReceiver.start();
                 }
@@ -143,6 +154,7 @@ public class CallManager {
                 e.printStackTrace();
             }
         }
+
 
         public void stop() {
             if (videoSender != null) videoSender.stopSend();
