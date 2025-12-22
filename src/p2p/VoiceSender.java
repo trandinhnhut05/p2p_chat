@@ -22,6 +22,7 @@ public class VoiceSender extends Thread {
 
     private static final int BUFFER_SIZE = 640; // 20ms @16kHz
 
+
     public VoiceSender(InetAddress target, int port, KeyManager keyManager, String callKey) {
         this.target = target;
         this.port = port;

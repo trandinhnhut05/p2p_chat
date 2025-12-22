@@ -18,19 +18,35 @@ import java.net.DatagramSocket;
 import java.net.InetAddress;
 
 public class VideoSender extends Thread {
+
+    // ===== Video config =====
     private static final int WIDTH = 320;
     private static final int HEIGHT = 240;
     private static final int CHUNK_SIZE = 1300;
+    private static final int FPS_DELAY_MS = 40; // ~25fps
 
+    // ===== Network / crypto =====
     private final InetAddress target;
     private final int port;
     private final KeyManager keyManager;
     private final String callKey;
+
+    // ===== UI =====
     private final ImageView localPreview;
+
+    // ===== Thread state =====
     private volatile boolean running = true;
+    private volatile boolean paused = false;
+
+    // 16-bit frame id (0 → 65535)
     private int frameId = 0;
 
-    public VideoSender(InetAddress target, int port, KeyManager keyManager, String callKey, ImageView localPreview) {
+    public VideoSender(InetAddress target,
+                       int port,
+                       KeyManager keyManager,
+                       String callKey,
+                       ImageView localPreview) {
+
         this.target = target;
         this.port = port;
         this.keyManager = keyManager;
@@ -38,15 +54,16 @@ public class VideoSender extends Thread {
         this.localPreview = localPreview;
     }
 
+    // ================= THREAD =================
     @Override
     public void run() {
-        System.out.println("🎥 VideoSender STARTED -> target="
-                + target.getHostAddress()
-                + ":" + port
+
+        System.out.println("🎥 VideoSender STARTED -> "
+                + target.getHostAddress() + ":" + port
                 + " callKey=" + callKey);
 
         if (!OpenCVLoader.init()) {
-            System.out.println("❌ OpenCV init failed in VideoSender");
+            System.err.println("❌ OpenCV init failed (VideoSender)");
             return;
         }
 
@@ -55,17 +72,27 @@ public class VideoSender extends Thread {
             System.err.println("❌ Cannot open camera");
             return;
         }
-        System.out.println("📷 Camera opened successfully");
-
+        System.out.println("📷 Camera opened");
 
         try (DatagramSocket socket = new DatagramSocket()) {
+
             Mat frame = new Mat();
+
             while (running) {
+
+                // ===== Pause handling =====
+                if (paused) {
+                    Thread.sleep(50);
+                    continue;
+                }
+
+                // ===== Capture =====
                 cam.read(frame);
                 if (frame.empty()) continue;
 
                 Imgproc.resize(frame, frame, new Size(WIDTH, HEIGHT));
 
+                // ===== Local preview =====
                 if (localPreview != null) {
                     Mat copy = frame.clone();
                     Image fx = matToImage(copy);
@@ -73,53 +100,76 @@ public class VideoSender extends Thread {
                     copy.release();
                 }
 
+                // ===== Encryption =====
                 SecretKey key = keyManager.getOrCreate(callKey);
                 if (key == null) continue;
 
-                MatOfByte buf = new MatOfByte();
-                Imgcodecs.imencode(".jpg", frame, buf);
-                IvParameterSpec ivSpec = CryptoUtils.generateIv();
-                byte[] encrypted = CryptoUtils.encryptAES(buf.toArray(), key, ivSpec);
-                byte[] iv = ivSpec.getIV();
+                MatOfByte jpg = new MatOfByte();
+                Imgcodecs.imencode(".jpg", frame, jpg);
 
+                IvParameterSpec ivSpec = CryptoUtils.generateIv();
+                byte[] encrypted = CryptoUtils.encryptAES(
+                        jpg.toArray(),
+                        key,
+                        ivSpec
+                );
+
+                byte[] iv = ivSpec.getIV();
                 byte[] payload = new byte[iv.length + encrypted.length];
                 System.arraycopy(iv, 0, payload, 0, iv.length);
                 System.arraycopy(encrypted, 0, payload, iv.length, encrypted.length);
 
-                int totalChunks = (int) Math.ceil(payload.length / (double) CHUNK_SIZE);
-                frameId = (frameId + 1) & 0xFFFF;
-                // reset khi overflow
+                // ===== Chunking =====
+                int totalChunks = (int) Math.ceil(
+                        payload.length / (double) CHUNK_SIZE
+                );
+
+                frameId = (frameId + 1) & 0xFFFF; // 16-bit wrap
 
                 for (int i = 0; i < totalChunks; i++) {
                     int off = i * CHUNK_SIZE;
                     int len = Math.min(CHUNK_SIZE, payload.length - off);
 
                     byte[] packet = new byte[6 + len];
+
+                    // Header
                     packet[0] = (byte) (frameId >> 8);
                     packet[1] = (byte) frameId;
                     packet[2] = (byte) i;
                     packet[3] = (byte) totalChunks;
                     packet[4] = (byte) (len >> 8);
                     packet[5] = (byte) len;
+
+                    // Payload
                     System.arraycopy(payload, off, packet, 6, len);
 
-                    socket.send(new DatagramPacket(packet, packet.length, target, port));
+                    socket.send(
+                            new DatagramPacket(packet, packet.length, target, port)
+                    );
                 }
 
-                Thread.sleep(40);
+                Thread.sleep(FPS_DELAY_MS);
             }
+
         } catch (Exception e) {
-            e.printStackTrace();
+            if (running) e.printStackTrace();
         } finally {
             cam.release();
+            System.out.println("🎥 VideoSender STOPPED");
         }
     }
 
+    // ================= CONTROL =================
     public void stopSend() {
         running = false;
         interrupt();
     }
 
+    public void setPaused(boolean paused) {
+        this.paused = paused;
+    }
+
+    // ================= UTILS =================
     private Image matToImage(Mat mat) {
         MatOfByte buf = new MatOfByte();
         Imgcodecs.imencode(".png", mat, buf);

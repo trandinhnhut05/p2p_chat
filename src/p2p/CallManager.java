@@ -6,11 +6,13 @@ import p2p.crypto.KeyManager;
 import java.net.InetAddress;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class CallManager {
 
     private final KeyManager keyManager;
-    private final Map<String, CallSession> activeCalls = new HashMap<>();
+    private final Map<String, CallSession> activeCalls = new ConcurrentHashMap<>();
+
     private PeerClient peerClient;
 
     public CallManager(KeyManager keyManager) {
@@ -62,7 +64,7 @@ public class CallManager {
         );
 
         activeCalls.put(callId, session);
-        session.startReceiving();
+
     }
 
     // Khi cuộc gọi được chấp nhận
@@ -85,8 +87,9 @@ public class CallManager {
             session.setLocalPreview(localPreview);
             session.setRemoteView(remoteView);
 
-            session.startSending();
+
             session.startReceiving();
+            session.startSending();
         } else {
             System.out.println("❌ session == null");
         }
@@ -147,19 +150,19 @@ public class CallManager {
         }
 
         // Bật/tắt video
+
         public void toggleVideo() {
             videoEnabled = !videoEnabled;
+
             if (videoSender != null) {
-                if (videoEnabled) {
-                    videoSender.start(); // bật lại gửi video
-                } else {
-                    videoSender.stopSend(); // tắt gửi video
-                }
+                videoSender.setPaused(!videoEnabled);
             }
+
             if (localPreview != null) {
-                localPreview.setVisible(videoEnabled); // ẩn/hiện preview
+                localPreview.setVisible(videoEnabled);
             }
         }
+
 
         public void setLocalPorts(int videoPort, int audioPort) {
             this.localVideoPort = videoPort;
@@ -219,7 +222,10 @@ public class CallManager {
 
             try {
 
-                if (videoReceiver == null && localVideoPort > 0) {
+                if (videoReceiver == null
+                        && localVideoPort > 0
+                        && remoteView != null) {
+
                     videoReceiver = new VideoReceiver(
                             localVideoPort,
                             keyManager,
@@ -228,8 +234,9 @@ public class CallManager {
                     );
                     videoReceiver.start();
 
-                    System.out.println("✅ startReceiving() called");
+                    System.out.println("🎥 VideoReceiver started on port " + localVideoPort);
                 }
+
 
                 if (voiceReceiver == null && localAudioPort > 0) {
                     voiceReceiver = new VoiceReceiver(localAudioPort, keyManager, callId);
