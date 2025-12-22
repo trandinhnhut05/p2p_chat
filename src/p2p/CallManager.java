@@ -1,6 +1,5 @@
 package p2p;
 
-import javafx.application.Platform;
 import javafx.scene.image.ImageView;
 import p2p.crypto.KeyManager;
 
@@ -30,14 +29,18 @@ public class CallManager {
     }
 
     /**
-     * Tạo session outgoing call
+     * Caller tạo session outgoing call
      */
     public void createOutgoingCall(Peer remotePeer, String callId,
                                    int localVideoPort, int localAudioPort,
                                    ImageView localVideoView) {
 
+        // Gán port cho peer
         remotePeer.setVideoPort(localVideoPort);
         remotePeer.setAudioPort(localAudioPort);
+
+        // Tạo key ngay khi bắt đầu call
+        keyManager.getOrCreate(callId);
 
         CallSession session = new CallSession(remotePeer, callId,
                 localVideoPort, localAudioPort, 0, 0,
@@ -49,10 +52,15 @@ public class CallManager {
         session.startReceiving();
     }
 
-
+    /**
+     * Callee nhận incoming call
+     */
     public void onIncomingCall(Peer fromPeer, String callId,
                                int remoteVideoPort, int remoteAudioPort,
                                ImageView remoteVideoView) {
+
+        // 🔑 Tạo key ngay khi nhận request
+        keyManager.getOrCreate(callId);
 
         CallSession session = new CallSession(fromPeer, callId,
                 fromPeer.getVideoPort(), fromPeer.getAudioPort(),
@@ -61,24 +69,18 @@ public class CallManager {
 
         activeCalls.put(callId, session);
 
-        // Receiver luôn start trước
+        // Receiver luôn start trước sender
         session.startReceiving();
-        // Sender sẽ start sau khi gửi CALL_ACCEPT (được gọi ở MainUI.onIncomingCall)
     }
-
-
 
     public void onCallAccepted(Peer fromPeer, String callId,
                                int remoteVideoPort, int remoteAudioPort) {
         CallSession session = activeCalls.get(callId);
         if (session != null) {
             session.setRemotePorts(remoteVideoPort, remoteAudioPort);
-            // Sender + Receiver
-            session.startSending();
-            session.startReceiving();
+            session.startSending();   // Sender start khi call accepted
         }
     }
-
 
     public void endCall(String callId) {
         CallSession session = activeCalls.remove(callId);
@@ -123,12 +125,10 @@ public class CallManager {
             try {
                 InetAddress target = remotePeer.getAddress();
                 if (videoSender == null && remoteVideoPort > 0) {
-                    System.out.println("🎥 Starting VideoSender to " + target + ":" + remoteVideoPort);
                     videoSender = new VideoSender(target, remoteVideoPort, keyManager, callId, videoView);
                     videoSender.start();
                 }
                 if (voiceSender == null && remoteAudioPort > 0) {
-                    System.out.println("🎤 Starting VoiceSender to " + target + ":" + remoteAudioPort);
                     voiceSender = new VoiceSender(target, remoteAudioPort, keyManager, callId);
                     voiceSender.start();
                 }
@@ -137,12 +137,11 @@ public class CallManager {
             }
         }
 
-
         public void startReceiving() {
             try {
                 // Wait until key exists
                 int tries = 0;
-                while (!keyManager.hasKey(callId) && tries < 10) {
+                while (!keyManager.hasKey(callId) && tries < 20) {
                     Thread.sleep(50);
                     tries++;
                 }
@@ -164,8 +163,6 @@ public class CallManager {
                 e.printStackTrace();
             }
         }
-
-
 
         public void stop() {
             if (videoSender != null) videoSender.stopSend();
