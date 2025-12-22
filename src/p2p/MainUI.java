@@ -365,11 +365,10 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
     }
 
     // Khi nhận CALL_REQUEST từ peer
+    /* ================= CALL ================= */
+// Khi nhận CALL_REQUEST từ peer
     public void onIncomingCall(Peer peer, String callKey, int callerVideoPort, int callerAudioPort) {
-        if (inCall) { peerClient.sendCallEnd(peer); return; }
-
-        if (!OpenCVLoader.init()) {
-            alert("❌ Cannot accept call: OpenCV not loaded");
+        if (inCall) {
             peerClient.sendCallEnd(peer);
             return;
         }
@@ -377,25 +376,62 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         currentCallPeer = peer;
         currentCallKey = callKey;
 
-        // ports local
+        // ports local trống để nhận video/voice
         localVideoPort = getFreePort();
         localAudioPort = getFreePort();
 
-        // Tạo session 2 chiều thông qua CallManager
-        callManager.onIncomingCall(peer, callKey, callerVideoPort, callerAudioPort, videoViewRemote);
+        // Hiển thị Alert trên UI thread
+        Platform.runLater(() -> {
+            Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+            alert.setTitle("Incoming Call");
+            alert.setHeaderText("📞 Call from " + peer.getUsername());
+            alert.setContentText("Accept call?");
+            ButtonType accept = new ButtonType("Accept");
+            ButtonType reject = new ButtonType("Reject");
+            alert.getButtonTypes().setAll(accept, reject);
 
-        inCall = true;
-        btnVideoCall.setDisable(true);
-        btnEndVideo.setDisable(false);
+            alert.showAndWait().ifPresent(btn -> {
+                if (btn == accept) {
+                    // Tạo CallSession hai chiều
+                    callManager.onIncomingCall(peer, callKey, callerVideoPort, callerAudioPort, videoViewRemote);
+
+                    // Gửi CALL_ACCEPT kèm port mà callee nhận video/voice
+                    new Thread(() -> peerClient.sendCallAccept(peer, localVideoPort, localAudioPort, callKey)).start();
+
+                    inCall = true;
+                    btnVideoCall.setDisable(true);
+                    btnEndVideo.setDisable(false);
+
+                    System.out.println("📞 Call accepted from " + peer.getUsername());
+                } else {
+                    peerClient.sendCallEnd(peer);
+                    currentCallPeer = null;
+                    currentCallKey = null;
+                }
+            });
+        });
     }
 
-    // Khi peer chấp nhận call
-    public void onCallAccepted(Peer peer, int calleeVideoPort, int calleeAudioPort) {
-        if (!inCall || peer != currentCallPeer) return;
+    // Khi peer chấp nhận call của mình
+    public void onCallAccepted(Peer peer, int calleeVideoPort, int calleeAudioPort, String callKey) {
+        if (!inCall || peer != currentCallPeer || !callKey.equals(currentCallKey)) return;
 
-        callManager.onCallAccepted(peer, currentCallKey, calleeVideoPort, calleeAudioPort);
+        // Cập nhật session với port mà callee nhận video/voice
+        callManager.onCallAccepted(peer, callKey, calleeVideoPort, calleeAudioPort);
 
+        // Tạo VideoReceiver/VoiceReceiver ở local nếu chưa tạo
+        if (videoReceiver == null) {
+            videoReceiver = new VideoReceiver(localVideoPort, keyManager, videoViewLocal, callKey);
+            videoReceiver.start();
+        }
+        if (voiceReceiver == null) {
+            voiceReceiver = new VoiceReceiver(localAudioPort, keyManager, callKey);
+            voiceReceiver.start();
+        }
+
+        System.out.println("📞 Call started with " + peer.getUsername());
     }
+
 
     // Khi kết thúc call
     public void stopCall() {

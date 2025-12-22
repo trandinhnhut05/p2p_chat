@@ -125,11 +125,15 @@ public class PeerClient {
         }
     }
 
+    /* ================= CALL ================= */
+
+    // Gửi CALL_ACCEPT kèm callKey, videoPort, audioPort
     public void sendCallAccept(Peer peer,
                                int localVideoPort,
-                               int localAudioPort) {
+                               int localAudioPort,
+                               String callKey) {
 
-        if (peer.getServicePort() <= 0 || peer.getCallKey() == null) {
+        if (peer.getServicePort() <= 0 || callKey == null) {
             System.err.println("❌ Cannot send CALL_ACCEPT, missing servicePort or callKey");
             return;
         }
@@ -139,7 +143,7 @@ public class PeerClient {
 
             sendHello(dos);
             dos.writeUTF("CALL_ACCEPT");
-            dos.writeUTF(peer.getCallKey());
+            dos.writeUTF(callKey);            // 🔹 truyền callKey
             dos.writeInt(localVideoPort);
             dos.writeInt(localAudioPort);
             dos.flush();
@@ -148,6 +152,7 @@ public class PeerClient {
             e.printStackTrace();
         }
     }
+
 
 
 
