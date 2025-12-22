@@ -457,6 +457,7 @@ public class MainUI extends Application implements PeerServer.ConnectionListener
         Platform.runLater(() -> {
             videoViewLocal.setImage(null);
             videoViewRemote.setImage(null);
+            videoViewRemote.setVisible(true);
             btnVideoCall.setDisable(false);
             btnEndVideo.setDisable(true);
         });
