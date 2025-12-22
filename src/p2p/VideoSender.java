@@ -7,7 +7,6 @@ import org.opencv.core.*;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 import org.opencv.videoio.VideoCapture;
-import org.opencv.videoio.Videoio;
 import p2p.crypto.CryptoUtils;
 import p2p.crypto.KeyManager;
 
@@ -28,13 +27,12 @@ public class VideoSender extends Thread {
     private final int port;
     private final KeyManager keyManager;
     private final String callKey;
-
     private volatile boolean running = true;
     private short frameId = 0;
     private final ImageView localPreview;
 
-    public VideoSender(InetAddress target, int port,
-                       KeyManager keyManager, String callKey, ImageView localPreview) {
+    public VideoSender(InetAddress target, int port, KeyManager keyManager,
+                       String callKey, ImageView localPreview) {
         this.target = target;
         this.port = port;
         this.keyManager = keyManager;
@@ -44,7 +42,7 @@ public class VideoSender extends Thread {
 
     @Override
     public void run() {
-        VideoCapture cam = new VideoCapture(0, Videoio.CAP_DSHOW);
+        VideoCapture cam = new VideoCapture(0);
         if (!cam.isOpened()) {
             System.err.println("❌ Cannot open camera");
             return;
@@ -52,20 +50,15 @@ public class VideoSender extends Thread {
 
         try (DatagramSocket socket = new DatagramSocket()) {
             Mat frame = new Mat();
-
             while (running) {
                 SecretKey key = keyManager.getOrCreate(callKey);
-                if (key == null) {
-                    Thread.sleep(50);
-                    continue;
-                }
+                if (key == null) { Thread.sleep(50); continue; }
 
                 cam.read(frame);
                 if (frame.empty()) continue;
 
                 Imgproc.resize(frame, frame, new Size(WIDTH, HEIGHT));
 
-                // ================= UPDATE SELF-PREVIEW =================
                 if (localPreview != null) {
                     Mat copy = frame.clone();
                     Image fxImage = matToImage(copy);
@@ -77,8 +70,8 @@ public class VideoSender extends Thread {
                 Imgcodecs.imencode(".jpg", frame, jpg);
                 byte[] raw = jpg.toArray();
 
+                byte[] encrypted = CryptoUtils.encryptAES(raw, key, CryptoUtils.generateIv());
                 IvParameterSpec iv = CryptoUtils.generateIv();
-                byte[] encrypted = CryptoUtils.encryptAES(raw, key, iv);
 
                 byte[] payload = new byte[16 + encrypted.length];
                 System.arraycopy(iv.getIV(), 0, payload, 0, 16);
@@ -103,23 +96,17 @@ public class VideoSender extends Thread {
                     socket.send(new DatagramPacket(packet, packet.length, target, port));
                 }
 
-                Thread.sleep(40); // ~25 FPS
+                Thread.sleep(40);
             }
-        } catch (Exception e) {
-            e.printStackTrace();
-        } finally {
-            cam.release();
-        }
+
+        } catch (Exception e) { e.printStackTrace(); }
+        finally { cam.release(); }
     }
+
     private Image matToImage(Mat frame) {
-        try {
-            MatOfByte buffer = new MatOfByte();
-            Imgcodecs.imencode(".png", frame, buffer);
-            return new Image(new ByteArrayInputStream(buffer.toArray()));
-        } catch (Exception e) {
-            e.printStackTrace();
-            return null;
-        }
+        MatOfByte buffer = new MatOfByte();
+        Imgcodecs.imencode(".png", frame, buffer);
+        return new Image(new ByteArrayInputStream(buffer.toArray()));
     }
 
     public void stopSend() {

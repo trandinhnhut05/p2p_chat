@@ -28,63 +28,44 @@ public class VoiceReceiver extends Thread {
 
     @Override
     public void run() {
-        AudioFormat format = new AudioFormat(16000, 16, 1, true, true);
-        DataLine.Info info = new DataLine.Info(SourceDataLine.class, format);
-
-        // bind socket
         try {
+            AudioFormat format = new AudioFormat(16000, 16, 1, true, true);
+            DataLine.Info info = new DataLine.Info(SourceDataLine.class, format);
+
             socket = new DatagramSocket(port);
             System.out.println("🎧 VoiceReceiver listening on port " + port);
-        } catch (Exception e) {
-            System.err.println("❌ Cannot bind VoiceReceiver port " + port);
-            return;
-        }
 
-        try (SourceDataLine speakers = (SourceDataLine) AudioSystem.getLine(info)) {
-            speakers.open(format);
-            speakers.start();
+            try (SourceDataLine speakers = (SourceDataLine) AudioSystem.getLine(info)) {
+                speakers.open(format);
+                speakers.start();
 
-            byte[] buffer = new byte[AUDIO_PAYLOAD + IV_SIZE];
+                byte[] buffer = new byte[AUDIO_PAYLOAD + IV_SIZE];
 
-            while (running) {
-                DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
-                socket.receive(packet);
+                while (running) {
+                    DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
+                    socket.receive(packet);
 
-                // 🔒 WAIT FOR KEY (DO NOT CREATE)
-                if (!keyManager.hasKey(callKey)) {
-                    continue;
-                }
+                    if (!keyManager.hasKey(callKey)) continue;
+                    if (packet.getLength() <= IV_SIZE) continue;
 
-                if (packet.getLength() <= IV_SIZE) {
-                    continue;
-                }
+                    byte[] ivBytes = new byte[IV_SIZE];
+                    System.arraycopy(packet.getData(), 0, ivBytes, 0, IV_SIZE);
+                    byte[] encrypted = new byte[packet.getLength() - IV_SIZE];
+                    System.arraycopy(packet.getData(), IV_SIZE, encrypted, 0, encrypted.length);
 
-                byte[] ivBytes = new byte[IV_SIZE];
-                System.arraycopy(packet.getData(), 0, ivBytes, 0, IV_SIZE);
+                    SecretKey key = keyManager.getSessionKey(callKey);
+                    if (key == null) continue;
 
-                byte[] encrypted = new byte[packet.getLength() - IV_SIZE];
-                System.arraycopy(packet.getData(), IV_SIZE, encrypted, 0, encrypted.length);
+                    byte[] decrypted;
+                    try {
+                        decrypted = CryptoUtils.decryptAES(encrypted, key, new IvParameterSpec(ivBytes));
+                    } catch (Exception e) {
+                        continue;
+                    }
 
-                SecretKey key = keyManager.getSessionKey(callKey);
-                if (key == null) continue; // chưa có key, bỏ qua packet
-
-
-                byte[] decrypted;
-                try {
-                    decrypted = CryptoUtils.decryptAES(
-                            encrypted,
-                            key,
-                            new IvParameterSpec(ivBytes)
-                    );
-                } catch (Exception e) {
-                    // ❗ drop corrupted packet
-                    continue;
-                }
-
-                int frameSize = format.getFrameSize();
-                int validBytes = decrypted.length - (decrypted.length % frameSize);
-                if (validBytes > 0) {
-                    speakers.write(decrypted, 0, validBytes);
+                    int frameSize = format.getFrameSize();
+                    int validBytes = decrypted.length - (decrypted.length % frameSize);
+                    if (validBytes > 0) speakers.write(decrypted, 0, validBytes);
                 }
             }
 
@@ -98,9 +79,5 @@ public class VoiceReceiver extends Thread {
     public void stopReceive() {
         running = false;
         if (socket != null && !socket.isClosed()) socket.close();
-    }
-
-    public int getPort() {
-        return port;
     }
 }

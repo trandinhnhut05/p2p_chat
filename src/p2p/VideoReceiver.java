@@ -21,7 +21,6 @@ public class VideoReceiver extends Thread {
     private final KeyManager keyManager;
     private final ImageView imageView;
     private final String callKey;
-
     private volatile boolean running = true;
     private DatagramSocket socket;
 
@@ -30,8 +29,7 @@ public class VideoReceiver extends Thread {
     private int expected = -1;
     private short currentFrame = -1;
 
-    public VideoReceiver(int port, KeyManager keyManager,
-                         ImageView imageView, String callKey) {
+    public VideoReceiver(int port, KeyManager keyManager, ImageView imageView, String callKey) {
         this.port = port;
         this.keyManager = keyManager;
         this.imageView = imageView;
@@ -47,7 +45,6 @@ public class VideoReceiver extends Thread {
             while (running) {
                 DatagramPacket pkt = new DatagramPacket(buf, buf.length);
                 socket.receive(pkt);
-
                 byte[] data = pkt.getData();
 
                 short frameId = (short) (((data[0] & 0xFF) << 8) | (data[1] & 0xFF));
@@ -76,30 +73,23 @@ public class VideoReceiver extends Thread {
                         pos += c.length;
                     }
 
-                    if (!keyManager.hasKey(callKey)) {
-                        return;
-                    }
-
+                    if (!keyManager.hasKey(callKey)) continue;
                     SecretKey key = keyManager.getOrCreate(callKey);
+                    byte[] iv = Arrays.copyOfRange(full, 0, 16);
+                    byte[] enc = Arrays.copyOfRange(full, 16, full.length);
 
-                    if (key != null) {
-                        byte[] iv = Arrays.copyOfRange(full, 0, 16);
-                        byte[] enc = Arrays.copyOfRange(full, 16, full.length);
-
-                        byte[] raw = CryptoUtils.decryptAES(enc, key, new IvParameterSpec(iv));
-                        Mat img = Imgcodecs.imdecode(new MatOfByte(raw), Imgcodecs.IMREAD_COLOR);
-
-                        if (!img.empty()) {
-                            Image fx = matToImage(img);
-                            Platform.runLater(() -> imageView.setImage(fx));
-                        }
+                    byte[] raw = CryptoUtils.decryptAES(enc, key, new IvParameterSpec(iv));
+                    Mat img = Imgcodecs.imdecode(new MatOfByte(raw), Imgcodecs.IMREAD_COLOR);
+                    if (!img.empty()) {
+                        Image fx = matToImage(img);
+                        Platform.runLater(() -> imageView.setImage(fx));
                     }
-
                     chunks = null;
                     received = 0;
                     expected = -1;
                 }
             }
+
         } catch (Exception e) {
             if (running) e.printStackTrace();
         }
