@@ -23,10 +23,17 @@ public class CallManager {
     /**
      * Tạo session outgoing call
      */
-    public void createOutgoingCall(Peer remotePeer, String callId, int localVideoPort, int localAudioPort,
+    public void createOutgoingCall(Peer remotePeer, String callId,
+                                   int localVideoPort, int localAudioPort,
                                    ImageView localVideoView) {
-        CallSession session = new CallSession(remotePeer, callId, localVideoPort, localAudioPort,
-                0, 0, keyManager, localVideoView);
+
+        remotePeer.setVideoPort(localVideoPort);
+        remotePeer.setAudioPort(localAudioPort);
+
+        CallSession session = new CallSession(remotePeer, callId,
+                localVideoPort, localAudioPort, 0, 0,
+                keyManager, localVideoView);
+
         activeCalls.put(callId, session);
 
         session.startReceiving();
@@ -35,20 +42,18 @@ public class CallManager {
     public void onIncomingCall(Peer fromPeer, String callId,
                                int remoteVideoPort, int remoteAudioPort,
                                ImageView remoteVideoView) {
-        int localVideoPort = fromPeer.getVideoPort();
-        int localAudioPort = fromPeer.getAudioPort();
 
         CallSession session = new CallSession(fromPeer, callId,
-                localVideoPort, localAudioPort,
+                fromPeer.getVideoPort(), fromPeer.getAudioPort(),
                 remoteVideoPort, remoteAudioPort,
                 keyManager, remoteVideoView);
+
         activeCalls.put(callId, session);
 
         session.startReceiving();
         session.startSending();
-
-        fromPeer.sendCallAccept(fromPeer, callId, localVideoPort, localAudioPort);
     }
+
 
     public void onCallAccepted(Peer fromPeer, String callId,
                                int remoteVideoPort, int remoteAudioPort) {

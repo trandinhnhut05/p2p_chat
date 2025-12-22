@@ -101,25 +101,14 @@ public class PeerClient {
                                 int localAudioPortSend,
                                 String callKey) {
 
-        peer.setCallKey(callKey);
-
         try {
-            // 🔐 ensure call session key
-            if (!keyManager.hasKey(callKey)) {
-                SecretKey key = keyManager.getOrCreate(callKey);
+            // 1️⃣ Tạo session key và đảm bảo remote peer có key
+            SecretKey key = keyManager.getOrCreate(callKey);
+            ensureSessionKeyOnRemote(peer, callKey);
 
-                try (Socket s = new Socket(peer.getAddress(), peer.getServicePort());
-                     DataOutputStream dos = new DataOutputStream(s.getOutputStream())) {
+            peer.setCallKey(callKey);
 
-                    sendHello(dos);
-                    dos.writeUTF("SESSION_KEY");
-                    dos.writeUTF(callKey);
-                    dos.write(key.getEncoded());
-                    dos.flush();
-                }
-            }
-
-            // 📞 CALL_REQUEST (2 port only)
+            // 2️⃣ Gửi CALL_REQUEST
             try (Socket socket = new Socket(peer.getAddress(), peer.getServicePort());
                  DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
 
@@ -135,6 +124,31 @@ public class PeerClient {
             e.printStackTrace();
         }
     }
+
+    public void sendCallAccept(Peer peer,
+                               int localVideoPort,
+                               int localAudioPort) {
+
+        if (peer.getServicePort() <= 0 || peer.getCallKey() == null) {
+            System.err.println("❌ Cannot send CALL_ACCEPT, missing servicePort or callKey");
+            return;
+        }
+
+        try (Socket socket = new Socket(peer.getAddress(), peer.getServicePort());
+             DataOutputStream dos = new DataOutputStream(socket.getOutputStream())) {
+
+            sendHello(dos);
+            dos.writeUTF("CALL_ACCEPT");
+            dos.writeUTF(peer.getCallKey());
+            dos.writeInt(localVideoPort);
+            dos.writeInt(localAudioPort);
+            dos.flush();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
 
 
 
@@ -164,36 +178,7 @@ public class PeerClient {
 
 
 
-    public void sendCallAccept(Peer peer,
-                               int videoPort,
-                               int audioPort) {
 
-        // 🚨 CHẶN PORT -1 / PORT RÁC
-        if (peer.getServicePort() <= 0) {
-            System.err.println(
-                    "❌ Cannot send CALL_ACCEPT, servicePort not known yet for peer: "
-                            + peer.getId()
-            );
-            return;
-        }
-
-        try (Socket socket =
-                     new Socket(peer.getAddress(), peer.getServicePort());
-             DataOutputStream dos =
-                     new DataOutputStream(socket.getOutputStream())) {
-
-            sendHello(dos); // ✅ QUAN TRỌNG NHẤT
-
-            dos.writeUTF("CALL_ACCEPT");
-            dos.writeUTF(peer.getCallKey());
-            dos.writeInt(videoPort);
-            dos.writeInt(audioPort);
-            dos.flush();
-        }
-        catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
 
 
     public void sendCallEnd(Peer peer) {

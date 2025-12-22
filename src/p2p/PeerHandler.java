@@ -129,9 +129,10 @@ public class PeerHandler implements Runnable {
     private void handleCallRequest(DataInputStream dis) throws Exception {
         String callKey = dis.readUTF();
 
-        int retry = 5;
+        // Chờ session key
+        int retry = 10;
         while (!keyManager.hasKey(callKey) && retry-- > 0) {
-            Thread.sleep(100);
+            Thread.sleep(50);
         }
 
         if (!keyManager.hasKey(callKey)) {
@@ -141,12 +142,23 @@ public class PeerHandler implements Runnable {
 
         peer.setCallKey(callKey);
 
-        int videoPort = dis.readInt();
-        int audioPort = dis.readInt();
+        int remoteVideoPort = dis.readInt();
+        int remoteAudioPort = dis.readInt();
 
-        Platform.runLater(() ->
-                mainUI.onIncomingCall(peer, callKey, videoPort, audioPort)
-        );
+        // Khởi tạo local ports
+        int localVideoPort = PeerServer.findAvailablePort(7000);
+        int localAudioPort = PeerServer.findAvailablePort(8000);
+
+        peer.setVideoPort(localVideoPort);
+        peer.setAudioPort(localAudioPort);
+
+        Platform.runLater(() -> {
+            mainUI.onIncomingCall(peer, callKey, remoteVideoPort, remoteAudioPort);
+
+            // Gửi CALL_ACCEPT với local ports
+            peer.sendCallAccept(peer, callKey, localVideoPort, localAudioPort);
+
+        });
     }
 
     private void handleCallAccept(DataInputStream dis) throws Exception {
@@ -159,13 +171,12 @@ public class PeerHandler implements Runnable {
 
         peer.setCallKey(callKey);
 
-        int videoPort = dis.readInt();
-        int audioPort = dis.readInt();
+        int remoteVideoPort = dis.readInt();
+        int remoteAudioPort = dis.readInt();
 
-        Platform.runLater(() ->
-                mainUI.onCallAccepted(peer, videoPort, audioPort)
-        );
+        Platform.runLater(() -> mainUI.onCallAccepted(peer, remoteVideoPort, remoteAudioPort));
     }
+
 
     /* ================= FILE ================= */
 
